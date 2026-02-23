@@ -1277,7 +1277,7 @@ const App = () => {
                    <div className="flex items-center gap-3">
                      <div className="bg-blue-100 p-3 rounded-full text-blue-600"><FileText size={24}/></div>
                      <div>
-                       <h3 className="font-bold text-gray-800 truncate w-48 text-base">{proj.generalInfo?.customerName || 'ไม่มีชื่อลูกค้า'}</h3>
+                       <h3 className="font-bold text-gray-800 break-words w-48 text-base">{proj.generalInfo?.customerName || 'ไม่มีชื่อลูกค้า'}</h3>
                        <p className="text-xs text-gray-500 mt-1">{proj.generalInfo?.location || 'ไม่มีข้อมูลสถานที่'}</p>
                      </div>
                    </div>
@@ -1297,29 +1297,36 @@ const App = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-100 py-8 font-sans">
+    <div className="min-h-screen bg-gray-100 py-8 font-sans print:p-0">
       <DatabaseModal appDB={appDB} setAppDB={setAppDB} showDBSettings={showDBSettings} setShowDBSettings={setShowDBSettings} saveData={saveData} />
       <CustomFabricModal show={showCustomFabricModal} onClose={()=>setShowCustomFabricModal(false)} onAdd={(fab)=>setGeneralInfo(prev=>({...prev, customFabrics: [...(prev.customFabrics||[]), fab]}))} />
 
       <style>{`
         @media print {
-          @page { size: landscape A4; margin: 8mm; }
-          body { background: white; -webkit-print-color-adjust: exact; margin: 0; padding: 0; display: flex; justify-content: center; }
+          @page { size: landscape A4; margin: 8mm 10mm; }
+          body { background: white; -webkit-print-color-adjust: exact; margin: 0; padding: 0; display: block; }
           .no-print { display: none !important; }
+          .print-hidden { display: none !important; }
+          .print-block { display: block !important; }
+          .print-flex { display: flex !important; }
+          
           .print-border-none { border: none !important; background: transparent !important; resize: none !important; box-shadow: none !important; padding: 0 !important; }
           .print-bg-transparent { background: transparent !important; }
           .page-break { page-break-before: always; }
           .avoid-break { page-break-inside: avoid; }
           .shadow-lg { box-shadow: none !important; }
-          .max-w-[1200px] { width: 100% !important; max-width: 297mm !important; margin: 0 auto !important; padding: 0 !important; }
-          .print-h-auto { height: auto !important; max-height: none !important; overflow: visible !important; page-break-inside: avoid; }
+          .shadow-sm { box-shadow: none !important; }
+          
+          .max-w-[1200px] { width: 100% !important; max-width: 100% !important; margin: 0 auto !important; padding: 0 !important; }
+          .print-h-auto { height: auto !important; max-height: none !important; overflow: visible !important; }
           .print-overflow-visible { overflow: visible !important; }
           .print-transform-none { transform: none !important; }
-          select { appearance: none; -webkit-appearance: none; border: none; background: transparent; padding: 0; margin: 0;}
-          input::placeholder, textarea::placeholder { color: transparent; }
-          .gap-6 { gap: 0.75rem !important; }
-          .mb-6 { margin-bottom: 0.75rem !important; }
-          .space-y-10 > :not([hidden]) ~ :not([hidden]) { margin-top: 1rem !important; }
+          
+          /* Utility wrappers for text */
+          .whitespace-pre-wrap { white-space: pre-wrap !important; word-break: break-word !important; }
+          
+          /* Hide inputs and show divs */
+          select { display: none !important; }
         }
       `}</style>
 
@@ -1347,7 +1354,11 @@ const App = () => {
                   <div className="flex items-center ml-auto no-print"><input type="date" value={tempInstallDate} onChange={(e)=>setTempInstallDate(e.target.value)} className="border rounded px-2 py-1 text-xs outline-none focus:border-blue-500"/><button onClick={addInstallDate} className="bg-blue-100 text-blue-700 p-1.5 rounded ml-1 hover:bg-blue-200 transition-colors"><Plus size={14}/></button></div>
                 </div>
               </div>
-              <div className="flex flex-col"><span className="font-bold text-gray-700">สถานที่ติดตั้ง :</span><textarea name="location" value={generalInfo.location} onChange={handleGeneralChange} rows="2" className="w-full border border-gray-300 rounded p-2 mt-1 outline-none focus:border-blue-500 print-border-none resize-none bg-white print-bg-transparent text-sm font-medium"></textarea></div>
+              <div className="flex flex-col">
+                <span className="font-bold text-gray-700">สถานที่ติดตั้ง :</span>
+                <textarea name="location" value={generalInfo.location} onChange={handleGeneralChange} rows="2" className="w-full border border-gray-300 rounded p-2 mt-1 outline-none focus:border-blue-500 print-hidden resize-none bg-white text-sm font-medium"></textarea>
+                <div className="hidden print-block w-full mt-1 text-sm font-bold whitespace-pre-wrap text-blue-900 border-b border-gray-300 pb-1">{generalInfo.location || '-'}</div>
+              </div>
             </div>
             <div className="mt-6 text-center"><p className="border-b border-gray-400 w-48 mx-auto mb-1"></p><p className="text-gray-600 text-sm font-bold">ผู้จัดทำ</p></div>
           </div>
@@ -1364,13 +1375,14 @@ const App = () => {
         </div>
 
         <div className="mb-6 avoid-break bg-red-50 p-3 rounded border border-red-100 print-bg-transparent print-border-none relative z-0">
-          <h3 className="font-bold text-red-600 mb-1 text-sm underline">หมายเหตุเงื่อนไข :</h3>
-          <textarea name="terms" value={generalInfo.terms} onChange={handleGeneralChange} rows="4" className="w-full text-xs bg-transparent outline-none print-border-none text-gray-700 leading-tight resize-none"></textarea>
+          <h3 className="font-bold text-red-600 mb-2 text-sm underline">หมายเหตุเงื่อนไข :</h3>
+          <textarea name="terms" value={generalInfo.terms} onChange={handleGeneralChange} rows="4" className="w-full text-xs bg-transparent outline-none print-hidden text-gray-700 leading-tight resize-none"></textarea>
+          <div className="hidden print-block w-full text-xs text-gray-800 leading-relaxed whitespace-pre-wrap font-medium">{generalInfo.terms}</div>
         </div>
 
         <hr className="my-6 border-gray-300 no-print" />
 
-        <div className="space-y-10">
+        <div className="space-y-10 print:space-y-0">
           {items.map((item, index) => {
             const sMain1 = item.styleMain1 || item.styleMain || '';
             const sMain2 = item.styleMain2 || '';
@@ -1408,50 +1420,50 @@ const App = () => {
             const marginImg = item.marginBottom && item.marginBottom !== '-' ? appDB.marginImages?.[item.marginBottom] || (item.marginBottom.includes('1 ซม.') ? SVGS.floor_1cm : SVGS.floor_default) : null;
 
             return (
-              <div key={item.id} className="border-2 border-gray-800 p-1 relative avoid-break page-break rounded bg-white hover:z-50 transition-all duration-300 shadow-sm hover:shadow-md">
+              <div key={item.id} className="border-2 border-gray-800 p-1 relative avoid-break page-break rounded bg-white hover:z-50 transition-all duration-300 shadow-sm hover:shadow-md print:p-0 print:border-none print:shadow-none">
                 <div className="absolute top-0 left-0 bg-gray-800 text-white px-4 py-1.5 text-sm font-bold z-10 rounded-br">รายการที่ {index + 1}</div>
                 <button onClick={() => removeItem(item.id)} className="no-print absolute -top-3 -right-3 bg-red-500 text-white rounded-full p-2 hover:bg-red-600 shadow z-20 transition-transform hover:scale-110"><Trash2 size={16} /></button>
 
-                <div className="border border-gray-300 flex flex-col md:flex-row h-[750px] print:h-[650px] print:overflow-visible mt-8 md:mt-0 bg-white relative">
+                <div className="border border-gray-300 flex flex-col md:flex-row min-h-[750px] print:min-h-[175mm] print:h-auto mt-8 md:mt-0 bg-white relative print:border-2 print:border-gray-800 print:rounded-md overflow-hidden">
                   
                   {/* Left Column 70% */}
-                  <div className="w-full md:w-[70%] border-r border-gray-300 flex flex-col bg-white h-full print:h-auto relative z-20">
-                    <div className="h-[60%] print:h-[70%] w-full border-b border-gray-300 flex flex-col relative bg-gray-100">
+                  <div className="w-full md:w-[70%] border-r border-gray-300 flex flex-col bg-white print:h-auto relative z-20">
+                    <div className="h-[450px] print:h-[115mm] w-full border-b border-gray-300 flex flex-col relative bg-gray-100 shrink-0">
                       <ImageAreaEditor item={item} appDB={appDB} handleItemChange={handleItemChange} />
                     </div>
-                    <div className="h-[40%] print:h-[30%] w-full p-2 bg-gray-50 border-t border-gray-300 print-bg-transparent print-border-none">
-                      <div className="grid grid-cols-4 gap-2 h-full">
-                        <div className="flex flex-col items-center bg-white border border-gray-200 p-2 rounded shadow-sm print-border-none h-full justify-between overflow-hidden">
-                          <span className="text-[11px] font-bold text-gray-700 truncate w-full text-center mb-1.5 shrink-0">รูปแบบม่าน</span>
-                          <div className="flex-1 w-full bg-gray-50 border border-gray-100 flex items-center justify-center rounded overflow-hidden p-0 relative">
+                    <div className="flex-1 w-full p-2 bg-gray-50 print-bg-transparent print-border-none flex items-center">
+                      <div className="grid grid-cols-4 gap-3 print:gap-4 w-full h-full">
+                        <div className="flex flex-col items-center bg-white border border-gray-200 p-2 print:p-0 rounded shadow-sm print-border-none h-full justify-between overflow-hidden print:shadow-none">
+                          <span className="text-[12px] font-bold text-gray-800 w-full text-center mb-1.5 print:mb-2 shrink-0">รูปแบบม่าน</span>
+                          <div className="flex-1 w-full bg-gray-50 print:bg-transparent border border-gray-100 flex items-center justify-center rounded overflow-hidden p-0 relative print:my-2">
                             {styleImg1 && <img src={styleImg1} className={`h-full object-cover ${item.layers === 2 && styleImg2 ? 'w-1/2' : 'w-full'}`} />}
                             {item.layers === 2 && styleImg2 && <img src={styleImg2} className={`h-full object-cover border-l border-gray-200 ${styleImg1 ? 'w-1/2' : 'w-full'}`} />}
                             {!styleImg1 && (!styleImg2 || item.layers === 1) && <img src={SVGS.style_default} className="max-w-[50px] max-h-[50px] opacity-50" />}
                           </div>
-                          <span className="text-[11px] text-blue-800 print:text-black truncate w-full text-center mt-1.5 font-bold shrink-0">
+                          <span className="text-[11px] text-blue-800 print:text-black print:whitespace-normal print:break-words w-full text-center mt-1.5 print:mt-2 font-bold shrink-0">
                             {sMain1 || '-'} {item.layers === 2 ? ` / ${sMain2 || '-'}` : ''}
                           </span>
                         </div>
-                        <div className="flex flex-col items-center bg-white border border-gray-200 p-2 rounded shadow-sm print-border-none h-full justify-between overflow-hidden">
-                          <span className="text-[11px] font-bold text-gray-700 truncate w-full text-center mb-1.5 shrink-0">{txtMain || 'ชั้นที่ 1'}</span>
-                          <div className="flex-1 w-full border border-gray-100 flex items-center justify-center rounded overflow-hidden bg-gray-50 p-0">
-                            {imgMain ? <img src={imgMain} className="w-full h-full object-cover" /> : <span className="text-[10px] text-gray-400">ไม่มีรูป</span>}
+                        <div className="flex flex-col items-center bg-white border border-gray-200 p-2 print:p-0 rounded shadow-sm print-border-none h-full justify-between overflow-hidden print:shadow-none">
+                          <span className="text-[12px] font-bold text-gray-800 w-full text-center mb-1.5 print:mb-2 shrink-0">{txtMain || 'ชั้นที่ 1'}</span>
+                          <div className="flex-1 w-full border border-gray-100 print:border-transparent flex items-center justify-center rounded overflow-hidden bg-gray-50 print:bg-transparent p-0 print:my-2">
+                            {imgMain ? <img src={imgMain} className="w-full h-full object-cover print:border print:border-gray-200 print:rounded" /> : <span className="text-[10px] text-gray-400">ไม่มีรูป</span>}
                           </div>
-                          <span className="text-[10px] text-gray-700 truncate w-full text-center mt-1.5 font-bold shrink-0" title={colMain}>{colMain || '-'}</span>
+                          <span className="text-[11px] text-gray-700 w-full text-center mt-1.5 print:mt-2 font-bold shrink-0 print:whitespace-normal print:break-words">{colMain || '-'}</span>
                         </div>
-                        <div className={`flex flex-col items-center bg-white border border-gray-200 p-2 rounded shadow-sm print-border-none h-full justify-between overflow-hidden ${item.layers === 1 ? 'opacity-30' : ''}`}>
-                          <span className="text-[11px] font-bold text-gray-700 truncate w-full text-center mb-1.5 shrink-0">{item.layers === 2 ? (txtSheer || 'ชั้นที่ 2') : '-'}</span>
-                          <div className="flex-1 w-full border border-gray-100 flex items-center justify-center rounded overflow-hidden bg-gray-50 p-0">
-                            {item.layers === 2 && imgSheer ? <img src={imgSheer} className="w-full h-full object-cover" /> : <span className="text-[10px] text-gray-400">-</span>}
+                        <div className={`flex flex-col items-center bg-white border border-gray-200 p-2 print:p-0 rounded shadow-sm print-border-none h-full justify-between overflow-hidden print:shadow-none ${item.layers === 1 ? 'opacity-30 print:opacity-0' : ''}`}>
+                          <span className="text-[12px] font-bold text-gray-800 w-full text-center mb-1.5 print:mb-2 shrink-0">{item.layers === 2 ? (txtSheer || 'ชั้นที่ 2') : '-'}</span>
+                          <div className="flex-1 w-full border border-gray-100 print:border-transparent flex items-center justify-center rounded overflow-hidden bg-gray-50 print:bg-transparent p-0 print:my-2">
+                            {item.layers === 2 && imgSheer ? <img src={imgSheer} className="w-full h-full object-cover print:border print:border-gray-200 print:rounded" /> : <span className="text-[10px] text-gray-400">-</span>}
                           </div>
-                          <span className="text-[10px] text-gray-700 truncate w-full text-center mt-1.5 font-bold shrink-0" title={colSheer}>{item.layers === 2 ? (colSheer || '-') : '-'}</span>
+                          <span className="text-[11px] text-gray-700 w-full text-center mt-1.5 print:mt-2 font-bold shrink-0 print:whitespace-normal print:break-words">{item.layers === 2 ? (colSheer || '-') : '-'}</span>
                         </div>
-                        <div className="flex flex-col items-center bg-white border border-gray-200 p-2 rounded shadow-sm print-border-none h-full justify-between overflow-hidden">
-                          <span className="text-[11px] font-bold text-gray-700 truncate w-full text-center mb-1.5 shrink-0">ระยะชายม่าน</span>
-                          <div className="flex-1 w-full bg-gray-50 border border-gray-100 flex items-center justify-center rounded overflow-hidden p-0">
-                            {marginImg ? <img src={marginImg} className="w-full h-full object-cover" /> : <span className="text-[10px] text-gray-400">-</span>}
+                        <div className="flex flex-col items-center bg-white border border-gray-200 p-2 print:p-0 rounded shadow-sm print-border-none h-full justify-between overflow-hidden print:shadow-none">
+                          <span className="text-[12px] font-bold text-gray-800 w-full text-center mb-1.5 print:mb-2 shrink-0">ระยะชายม่าน</span>
+                          <div className="flex-1 w-full bg-gray-50 print:bg-transparent border border-gray-100 print:border-transparent flex items-center justify-center rounded overflow-hidden p-0 print:my-2">
+                            {marginImg ? <img src={marginImg} className="w-full h-full object-cover print:border print:border-gray-200 print:rounded" /> : <span className="text-[10px] text-gray-400">-</span>}
                           </div>
-                          <span className="text-[10px] text-gray-600 truncate w-full text-center mt-1.5 font-bold shrink-0" title={item.marginBottom}>{item.marginBottom || '-'}</span>
+                          <span className="text-[11px] text-gray-700 w-full text-center mt-1.5 print:mt-2 font-bold shrink-0 print:whitespace-normal print:break-words">{item.marginBottom || '-'}</span>
                         </div>
                       </div>
                     </div>
@@ -1459,23 +1471,24 @@ const App = () => {
 
                   {/* 30% Right Column: Text Information & Settings */}
                   <div className="w-full md:w-[30%] text-xs flex flex-col bg-white overflow-y-auto print:overflow-visible print:h-auto relative z-10">
-                    <div className="bg-gray-800 text-white p-3 flex flex-col print-border-none print-bg-transparent md:pt-8 shrink-0">
+                    <div className="bg-gray-800 text-white p-3 print:p-0 print:pt-6 print:px-3 flex flex-col print-border-none print-bg-transparent shrink-0">
                       <span className="mb-1 text-gray-300 print-hidden font-bold text-xs">ห้อง / ตำแหน่ง :</span>
-                      <textarea value={item.roomPos} onChange={(e)=>handleItemChange(item.id, 'roomPos', e.target.value)} className="w-full bg-transparent outline-none border-b border-gray-500 focus:border-white resize-none text-sm font-bold leading-tight print-border-none placeholder-gray-400 text-yellow-300 print:text-black" placeholder="ระบุห้อง เช่น ชั้น 1 / โถงกลม บานที่ 1" rows="2" />
+                      <textarea value={item.roomPos} onChange={(e)=>handleItemChange(item.id, 'roomPos', e.target.value)} className="w-full bg-transparent outline-none border-b border-gray-500 focus:border-white resize-none text-sm font-bold leading-tight print-hidden placeholder-gray-400 text-yellow-300" placeholder="ระบุห้อง เช่น ชั้น 1 / โถงกลม บานที่ 1" rows="2" />
+                      <div className="hidden print-block w-full text-base font-bold leading-tight text-black whitespace-pre-wrap border-b-2 border-gray-800 pb-2 mb-2">{item.roomPos || '-'}</div>
                     </div>
                     
-                    <div className="p-2 flex-1 flex flex-col justify-between gap-3 h-full">
+                    <div className="p-3 print:p-3 flex-1 flex flex-col justify-between gap-4 h-full">
                       
-                      <div className="border border-gray-300 p-2 rounded bg-gray-50 print-border-none print-bg-transparent">
+                      <div className="border border-gray-300 p-2 rounded bg-gray-50 print-border-none print-bg-transparent print:p-0">
                         <div className="flex justify-between items-center mb-2 border-b border-gray-300 pb-1">
-                          <span className="font-bold text-gray-800 text-xs">รายละเอียดวัสดุ/ผ้า</span>
+                          <span className="font-bold text-gray-800 text-[13px]">รายละเอียดวัสดุ/ผ้า</span>
                           <button onClick={()=>setShowCustomFabricModal(true)} className="no-print bg-indigo-100 hover:bg-indigo-200 text-indigo-700 border border-indigo-200 px-2 py-1 rounded text-[10px] font-bold shadow-sm transition-colors flex items-center"><Plus size={12} className="mr-0.5"/> ผ้านอกระบบ</button>
                         </div>
                         {item.areas.length === 0 && <span className="text-gray-400 italic no-print text-xs">เพิ่มพื้นที่บนรูปหน้างานก่อน</span>}
                         {item.areas.map((area, aIdx) => (
-                          <div key={area.id} className="mb-2 border-l-[3px] border-blue-500 pl-2">
-                            <div className="font-bold text-blue-800 mb-1.5 flex justify-between items-center bg-blue-50 px-1.5 py-1 rounded print-bg-transparent text-[11px]">
-                              <span>บานที่ {aIdx + 1} (ก:{area.width||'-'} ส:{area.height||'-'})</span>
+                          <div key={area.id} className="mb-3 border-l-[3px] border-blue-500 print:border-gray-800 pl-2">
+                            <div className="font-bold text-blue-800 print:text-black mb-1.5 flex justify-between items-center bg-blue-50 px-1.5 py-1 rounded print-bg-transparent print:p-0 text-[12px]">
+                              <span>บานที่ {aIdx + 1} <span className="font-normal">(ก:{area.width||'-'} ส:{area.height||'-'})</span></span>
                               <div className="flex items-center gap-2">
                                 {area.fabrics.length < (item.layers || 2) && (
                                   <button onClick={()=>addFabricToArea(item.id, area.id)} className="text-blue-600 hover:text-blue-800 no-print flex items-center bg-white px-2 py-0.5 border border-blue-200 shadow-sm rounded text-[10px] transition-colors"><Plus size={12} className="mr-0.5"/> เพิ่มผ้า</button>
@@ -1502,24 +1515,33 @@ const App = () => {
                               }
 
                               return (
-                                <div key={fab.id} className="flex flex-col gap-1.5 mb-1.5 bg-white p-1.5 border border-gray-200 rounded print-border-none relative pr-5 shadow-sm">
+                                <div key={fab.id} className="flex flex-col gap-1.5 mb-1.5 bg-white p-1.5 print:p-0 border border-gray-200 print:border-none rounded relative pr-5 print:pr-0 shadow-sm print:shadow-none">
                                   <button onClick={()=>removeFabric(item.id, area.id, fab.id)} className="absolute top-1 right-1 text-red-500 hover:bg-red-50 rounded no-print transition-colors"><X size={14}/></button>
-                                  <div className="flex gap-1.5">
-                                    <select value={fab.mainType} onChange={(e)=>updateFabric(item.id, area.id, fab.id, 'mainType', e.target.value)} className={`w-1/2 border-b border-gray-300 outline-none text-[11px] print-border-none bg-transparent font-bold ${isCustom ? 'text-indigo-600' : 'text-gray-700'}`}>
-                                      <option value="">-หมวดหมู่-</option>{mainTypeOptions.map(o=><option key={o} value={o}>{o}</option>)}
-                                    </select>
-                                    <select value={fab.subType} onChange={(e)=>updateFabric(item.id, area.id, fab.id, 'subType', e.target.value)} className="w-1/2 border-b border-gray-300 outline-none text-[11px] print-border-none bg-transparent font-bold text-indigo-700" disabled={!fab.mainType}>
-                                      <option value="">-ประเภทม่าน-</option>{subTypeOptions.map(o=><option key={o} value={o}>{o}</option>)}
-                                    </select>
+                                  
+                                  <div className="print-hidden flex flex-col gap-1.5">
+                                    <div className="flex gap-1.5">
+                                      <select value={fab.mainType} onChange={(e)=>updateFabric(item.id, area.id, fab.id, 'mainType', e.target.value)} className={`w-1/2 border-b border-gray-300 outline-none text-[11px] bg-transparent font-bold ${isCustom ? 'text-indigo-600' : 'text-gray-700'}`}>
+                                        <option value="">-หมวดหมู่-</option>{mainTypeOptions.map(o=><option key={o} value={o}>{o}</option>)}
+                                      </select>
+                                      <select value={fab.subType} onChange={(e)=>updateFabric(item.id, area.id, fab.id, 'subType', e.target.value)} className="w-1/2 border-b border-gray-300 outline-none text-[11px] bg-transparent font-bold text-indigo-700" disabled={!fab.mainType}>
+                                        <option value="">-ประเภทม่าน-</option>{subTypeOptions.map(o=><option key={o} value={o}>{o}</option>)}
+                                      </select>
+                                    </div>
+                                    <div className="flex gap-1.5">
+                                      <select value={fab.name} onChange={(e)=>updateFabric(item.id, area.id, fab.id, 'name', e.target.value)} className="w-1/2 border-b border-gray-300 outline-none text-[11px] bg-transparent font-medium" disabled={!fab.subType}>
+                                        <option value="">-รุ่น/ชื่อ-</option>{nameOptions.map(o=><option key={o} value={o}>{o}</option>)}
+                                      </select>
+                                      <select value={fab.color} onChange={(e)=>updateFabric(item.id, area.id, fab.id, 'color', e.target.value)} className="w-1/2 border-b border-gray-300 outline-none text-[11px] bg-transparent font-medium text-gray-600" disabled={!fab.name}>
+                                        <option value="">-สี-</option>{colorOptions.map(o=><option key={o} value={o}>{o}</option>)}
+                                      </select>
+                                    </div>
                                   </div>
-                                  <div className="flex gap-1.5">
-                                    <select value={fab.name} onChange={(e)=>updateFabric(item.id, area.id, fab.id, 'name', e.target.value)} className="w-1/2 border-b border-gray-300 outline-none text-[11px] print-border-none bg-transparent font-medium" disabled={!fab.subType}>
-                                      <option value="">-รุ่น/ชื่อ-</option>{nameOptions.map(o=><option key={o} value={o}>{o}</option>)}
-                                    </select>
-                                    <select value={fab.color} onChange={(e)=>updateFabric(item.id, area.id, fab.id, 'color', e.target.value)} className="w-1/2 border-b border-gray-300 outline-none text-[11px] print-border-none bg-transparent font-medium text-gray-600" disabled={!fab.name}>
-                                      <option value="">-สี-</option>{colorOptions.map(o=><option key={o} value={o}>{o}</option>)}
-                                    </select>
+
+                                  <div className="hidden print-flex flex-col gap-0.5 text-[12px] leading-snug">
+                                    <span className="font-bold text-gray-900 whitespace-pre-wrap">{fab.mainType || '-'} {fab.subType ? `/ ${fab.subType}` : ''}</span>
+                                    <span className="text-gray-800 whitespace-pre-wrap">{fab.name || '-'} {fab.color ? `/ ${fab.color}` : ''}</span>
                                   </div>
+
                                 </div>
                               )
                             })}
@@ -1527,78 +1549,106 @@ const App = () => {
                         ))}
                       </div>
 
-                      <div className="flex flex-col gap-2 py-1 flex-1 justify-center">
-                        <div className="flex flex-col"><span className="font-bold text-gray-700 text-xs">รูปแบบการทำงาน</span>
-                          <div className="flex items-center gap-4 mt-1 mb-2 bg-gray-100 p-1.5 rounded print-hidden">
+                      <div className="flex flex-col gap-3 py-1 flex-1 justify-center">
+                        <div className="flex flex-col"><span className="font-bold text-gray-800 text-[13px] border-b border-gray-300 pb-1 mb-1">รูปแบบการทำงาน</span>
+                          <div className="flex items-center gap-4 mb-2 bg-gray-100 p-1.5 rounded print-hidden">
                             <span className="text-[11px] font-bold text-gray-600">จำนวนชั้นม่าน:</span>
                             <label className="flex items-center gap-1 text-[11px] cursor-pointer font-bold"><input type="radio" checked={item.layers === 1} onChange={()=>handleLayerChange(item.id, 1)}/> 1 ชั้น</label>
                             <label className="flex items-center gap-1 text-[11px] cursor-pointer font-bold"><input type="radio" checked={item.layers !== 1} onChange={()=>handleLayerChange(item.id, 2)}/> 2 ชั้น</label>
                           </div>
                           
-                          <div className="flex gap-1.5 items-center mt-0.5">
+                          <div className="flex gap-1.5 items-center mt-0.5 print-hidden">
                             {item.layers !== 1 && <span className="text-[10px] font-bold text-gray-500 w-10 shrink-0">ชั้นที่ 1:</span>}
-                            <select value={sMain1} onChange={(e)=>handleItemChange(item.id, 'styleMain1', e.target.value)} className="w-1/2 border-b border-gray-400 outline-none print-border-none bg-transparent text-blue-800 font-bold text-xs"><option value="">-รูปแบบ-</option>{(appDB.styles || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
+                            <select value={sMain1} onChange={(e)=>handleItemChange(item.id, 'styleMain1', e.target.value)} className="w-1/2 border-b border-gray-400 outline-none bg-transparent text-blue-800 font-bold text-xs"><option value="">-รูปแบบ-</option>{(appDB.styles || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
                             <span className="text-gray-400 font-bold">/</span>
-                            <select value={item.styleAction1 || item.styleAction || ''} onChange={(e)=>handleItemChange(item.id, 'styleAction1', e.target.value)} className="w-1/2 border-b border-gray-400 outline-none print-border-none bg-transparent text-blue-800 font-bold text-xs"><option value="">-เปิดปิด-</option>{(appDB.actions || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
+                            <select value={item.styleAction1 || item.styleAction || ''} onChange={(e)=>handleItemChange(item.id, 'styleAction1', e.target.value)} className="w-1/2 border-b border-gray-400 outline-none bg-transparent text-blue-800 font-bold text-xs"><option value="">-เปิดปิด-</option>{(appDB.actions || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
+                          </div>
+                          
+                          <div className="hidden print-block text-[12px] font-bold text-gray-800 mt-1 whitespace-pre-wrap">
+                            {item.layers !== 1 && <span className="text-gray-600 mr-1">ชั้นที่ 1:</span>}
+                            {sMain1 || '-'} / {item.styleAction1 || item.styleAction || '-'}
                           </div>
 
                           {item.layers !== 1 && (
-                            <div className="flex gap-1.5 items-center mt-1.5">
-                              <span className="text-[10px] font-bold text-gray-500 w-10 shrink-0">ชั้นที่ 2:</span>
-                              <select value={sMain2} onChange={(e)=>handleItemChange(item.id, 'styleMain2', e.target.value)} className="w-1/2 border-b border-gray-400 outline-none print-border-none bg-transparent text-blue-800 font-bold text-xs"><option value="">-รูปแบบ-</option>{(appDB.styles || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
-                              <span className="text-gray-400 font-bold">/</span>
-                              <select value={item.styleAction2 || ''} onChange={(e)=>handleItemChange(item.id, 'styleAction2', e.target.value)} className="w-1/2 border-b border-gray-400 outline-none print-border-none bg-transparent text-blue-800 font-bold text-xs"><option value="">-เปิดปิด-</option>{(appDB.actions || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
-                            </div>
+                            <>
+                              <div className="flex gap-1.5 items-center mt-1.5 print-hidden">
+                                <span className="text-[10px] font-bold text-gray-500 w-10 shrink-0">ชั้นที่ 2:</span>
+                                <select value={sMain2} onChange={(e)=>handleItemChange(item.id, 'styleMain2', e.target.value)} className="w-1/2 border-b border-gray-400 outline-none bg-transparent text-blue-800 font-bold text-xs"><option value="">-รูปแบบ-</option>{(appDB.styles || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
+                                <span className="text-gray-400 font-bold">/</span>
+                                <select value={item.styleAction2 || ''} onChange={(e)=>handleItemChange(item.id, 'styleAction2', e.target.value)} className="w-1/2 border-b border-gray-400 outline-none bg-transparent text-blue-800 font-bold text-xs"><option value="">-เปิดปิด-</option>{(appDB.actions || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
+                              </div>
+                              <div className="hidden print-block text-[12px] font-bold text-gray-800 mt-1 whitespace-pre-wrap">
+                                <span className="text-gray-600 mr-1">ชั้นที่ 2:</span>
+                                {sMain2 || '-'} / {item.styleAction2 || '-'}
+                              </div>
+                            </>
                           )}
                         </div>
 
-                        <div className="flex flex-col"><span className="font-bold text-gray-700 text-xs">รางม่าน</span>
+                        <div className="flex flex-col"><span className="font-bold text-gray-800 text-[13px] border-b border-gray-300 pb-1 mb-1">รางม่าน</span>
                           <div className="flex flex-wrap gap-1.5 mt-1 print-border-none">
-                            {item.tracks?.map(t => <span key={t} className="bg-gray-100 px-2 py-0.5 rounded border border-gray-300 text-[11px] flex items-center shadow-sm font-medium">{t} <X size={10} className="ml-1 cursor-pointer text-red-500 no-print" onClick={()=>handleMultiSelect(item.id, 'tracks', t)}/></span>)}
+                            {item.tracks?.map(t => <span key={t} className="bg-gray-100 print:bg-transparent px-2 print:px-0 py-0.5 rounded border border-gray-300 print:border-none text-[12px] flex items-center shadow-sm print:shadow-none font-bold text-gray-800">{t} <X size={10} className="ml-1 cursor-pointer text-red-500 no-print" onClick={()=>handleMultiSelect(item.id, 'tracks', t)}/></span>)}
                             <select className="w-full border-b border-gray-300 outline-none no-print mt-1 text-[11px] text-gray-500 font-medium" onChange={(e) => {if(e.target.value) handleMultiSelect(item.id, 'tracks', e.target.value); e.target.value='';}}><option value="">+ เพิ่มชนิดรางม่าน</option>{(appDB.tracks || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
                           </div>
                         </div>
 
                         <div className="grid grid-cols-2 gap-3 mt-1">
-                           <div className="flex flex-col"><span className="font-bold text-gray-700 text-xs">ขาจับราง</span>
-                             <select value={item.bracket} onChange={(e)=>handleItemChange(item.id, 'bracket', e.target.value)} className="border-b border-gray-300 outline-none print-border-none bg-transparent text-xs font-medium mt-0.5"><option value="">-ระบุ-</option>{(appDB.brackets || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
+                           <div className="flex flex-col">
+                             <span className="font-bold text-gray-800 text-[13px] border-b border-gray-300 pb-1 mb-1">ขาจับราง</span>
+                             <select value={item.bracket} onChange={(e)=>handleItemChange(item.id, 'bracket', e.target.value)} className="border-b border-gray-300 outline-none print-hidden bg-transparent text-xs font-medium mt-0.5"><option value="">-ระบุ-</option>{(appDB.brackets || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
+                             <div className="hidden print-block text-[12px] font-bold mt-1 whitespace-pre-wrap text-gray-800">{item.bracket || '-'}</div>
                            </div>
-                           <div className="flex flex-col"><span className="font-bold text-gray-700 text-xs">การแขวน</span>
-                             <select value={item.hangStyle} onChange={(e)=>handleItemChange(item.id, 'hangStyle', e.target.value)} className="border-b border-gray-300 outline-none print-border-none bg-transparent text-xs font-medium mt-0.5"><option value="">-ระบุ-</option>{(appDB.hangStyles || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
+                           <div className="flex flex-col">
+                             <span className="font-bold text-gray-800 text-[13px] border-b border-gray-300 pb-1 mb-1">การแขวน</span>
+                             <select value={item.hangStyle} onChange={(e)=>handleItemChange(item.id, 'hangStyle', e.target.value)} className="border-b border-gray-300 outline-none print-hidden bg-transparent text-xs font-medium mt-0.5"><option value="">-ระบุ-</option>{(appDB.hangStyles || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
+                             <div className="hidden print-block text-[12px] font-bold mt-1 whitespace-pre-wrap text-gray-800">{item.hangStyle || '-'}</div>
                            </div>
                         </div>
 
-                        <div className="flex flex-col mt-1"><span className="font-bold text-gray-700 text-xs">อุปกรณ์เสริม</span>
+                        <div className="flex flex-col mt-1"><span className="font-bold text-gray-800 text-[13px] border-b border-gray-300 pb-1 mb-1">อุปกรณ์เสริม</span>
                           <div className="flex flex-wrap gap-1.5 mt-1 print-border-none">
-                            {item.accessories?.map(t => <span key={t} className="bg-gray-100 px-2 py-0.5 rounded border border-gray-300 text-[11px] flex items-center shadow-sm font-medium">{t} <X size={10} className="ml-1 cursor-pointer text-red-500 no-print" onClick={()=>handleMultiSelect(item.id, 'accessories', t)}/></span>)}
+                            {item.accessories?.map(t => <span key={t} className="bg-gray-100 print:bg-transparent px-2 print:px-0 py-0.5 rounded border border-gray-300 print:border-none text-[12px] flex items-center shadow-sm print:shadow-none font-bold text-gray-800">{t} <X size={10} className="ml-1 cursor-pointer text-red-500 no-print" onClick={()=>handleMultiSelect(item.id, 'accessories', t)}/></span>)}
                             <select className="w-full border-b border-gray-300 outline-none no-print mt-1 text-[11px] text-gray-500 font-medium" onChange={(e) => {if(e.target.value) handleMultiSelect(item.id, 'accessories', e.target.value); e.target.value='';}}><option value="">+ เพิ่มอุปกรณ์เสริม</option>{(appDB.accessories || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
                           </div>
                         </div>
                       </div>
 
-                      <div className="border border-gray-300 p-2 rounded bg-gray-50 print-border-none print-bg-transparent">
-                        <span className="font-bold text-gray-700 block mb-1.5 border-b border-gray-300 pb-1 text-xs">ระยะการเผื่อม่าน</span>
-                        <div className="grid grid-cols-1 gap-y-2 text-[11px]">
+                      <div className="border border-gray-300 p-2 rounded bg-gray-50 print-border-none print-bg-transparent print:p-0">
+                        <span className="font-bold text-gray-800 block mb-1.5 border-b border-gray-300 pb-1 text-[13px]">ระยะการเผื่อม่าน</span>
+                        <div className="grid grid-cols-1 gap-y-2 text-[12px]">
                           <div className="flex gap-3">
-                            <div className="flex flex-col w-1/2"><span className="text-gray-500 font-medium">ด้านซ้าย:</span><select value={item.marginLeft} onChange={(e)=>handleItemChange(item.id, 'marginLeft', e.target.value)} className="border-b border-gray-300 outline-none print-border-none bg-transparent font-medium"><option value="">-เลือก-</option>{(appDB.margins?.horizontal || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
-                              {item.marginLeft === 'ระบุเอง...' && <input type="text" value={item.customMarginLeft} onChange={(e)=>handleItemChange(item.id, 'customMarginLeft', e.target.value)} placeholder="พิมพ์ระบุ..." className="border-b border-dashed border-gray-400 bg-transparent outline-none mt-1 print-border-none text-blue-700 font-bold"/>}</div>
-                            <div className="flex flex-col w-1/2"><span className="text-gray-500 font-medium">ด้านขวา:</span><select value={item.marginRight} onChange={(e)=>handleItemChange(item.id, 'marginRight', e.target.value)} className="border-b border-gray-300 outline-none print-border-none bg-transparent font-medium"><option value="">-เลือก-</option>{(appDB.margins?.horizontal || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
-                              {item.marginRight === 'ระบุเอง...' && <input type="text" value={item.customMarginRight} onChange={(e)=>handleItemChange(item.id, 'customMarginRight', e.target.value)} placeholder="พิมพ์ระบุ..." className="border-b border-dashed border-gray-400 bg-transparent outline-none mt-1 print-border-none text-blue-700 font-bold"/>}</div>
+                            <div className="flex flex-col w-1/2"><span className="text-gray-600 font-bold">ด้านซ้าย:</span>
+                              <select value={item.marginLeft} onChange={(e)=>handleItemChange(item.id, 'marginLeft', e.target.value)} className="border-b border-gray-300 outline-none print-hidden bg-transparent font-medium"><option value="">-เลือก-</option>{(appDB.margins?.horizontal || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
+                              {item.marginLeft === 'ระบุเอง...' && <input type="text" value={item.customMarginLeft} onChange={(e)=>handleItemChange(item.id, 'customMarginLeft', e.target.value)} placeholder="พิมพ์ระบุ..." className="border-b border-dashed border-gray-400 bg-transparent outline-none mt-1 print-hidden text-blue-700 font-bold"/>}
+                              <div className="hidden print-block text-[12px] font-bold text-gray-800 whitespace-pre-wrap mt-0.5">{item.marginLeft === 'ระบุเอง...' ? item.customMarginLeft : (item.marginLeft || '-')}</div>
+                            </div>
+                            <div className="flex flex-col w-1/2"><span className="text-gray-600 font-bold">ด้านขวา:</span>
+                              <select value={item.marginRight} onChange={(e)=>handleItemChange(item.id, 'marginRight', e.target.value)} className="border-b border-gray-300 outline-none print-hidden bg-transparent font-medium"><option value="">-เลือก-</option>{(appDB.margins?.horizontal || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
+                              {item.marginRight === 'ระบุเอง...' && <input type="text" value={item.customMarginRight} onChange={(e)=>handleItemChange(item.id, 'customMarginRight', e.target.value)} placeholder="พิมพ์ระบุ..." className="border-b border-dashed border-gray-400 bg-transparent outline-none mt-1 print-hidden text-blue-700 font-bold"/>}
+                              <div className="hidden print-block text-[12px] font-bold text-gray-800 whitespace-pre-wrap mt-0.5">{item.marginRight === 'ระบุเอง...' ? item.customMarginRight : (item.marginRight || '-')}</div>
+                            </div>
                           </div>
                           <div className="flex gap-3 items-start mt-1">
-                            <div className="flex flex-col w-1/2"><span className="text-gray-500 font-medium">ด้านบน:</span><select value={item.marginTop} onChange={(e)=>handleItemChange(item.id, 'marginTop', e.target.value)} className="border-b border-gray-300 outline-none print-border-none bg-transparent text-blue-700 font-bold"><option value="">-เลือก-</option>{(appDB.margins?.top || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
-                              {item.marginTop === 'ระบุเอง...' && <input type="text" value={item.customMarginTop} onChange={(e)=>handleItemChange(item.id, 'customMarginTop', e.target.value)} placeholder="พิมพ์ระบุ..." className="border-b border-dashed border-gray-400 bg-transparent outline-none mt-1 print-border-none text-blue-700 font-bold"/>}</div>
-                            <div className="flex flex-col w-1/2"><span className="text-gray-500 font-medium">ด้านล่าง:</span><select value={item.marginBottom} onChange={(e)=>handleItemChange(item.id, 'marginBottom', e.target.value)} className="border-b border-gray-300 outline-none print-border-none bg-transparent text-blue-700 font-bold"><option value="">-เลือก-</option>{(appDB.margins?.bottom || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
-                              {item.marginBottom === 'ระบุเอง...' && <input type="text" value={item.customMarginBottom} onChange={(e)=>handleItemChange(item.id, 'customMarginBottom', e.target.value)} placeholder="พิมพ์ระบุ..." className="border-b border-dashed border-gray-400 bg-transparent outline-none mt-1 print-border-none text-blue-700 font-bold"/>}</div>
+                            <div className="flex flex-col w-1/2"><span className="text-gray-600 font-bold">ด้านบน:</span>
+                              <select value={item.marginTop} onChange={(e)=>handleItemChange(item.id, 'marginTop', e.target.value)} className="border-b border-gray-300 outline-none print-hidden bg-transparent text-blue-700 font-bold"><option value="">-เลือก-</option>{(appDB.margins?.top || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
+                              {item.marginTop === 'ระบุเอง...' && <input type="text" value={item.customMarginTop} onChange={(e)=>handleItemChange(item.id, 'customMarginTop', e.target.value)} placeholder="พิมพ์ระบุ..." className="border-b border-dashed border-gray-400 bg-transparent outline-none mt-1 print-hidden text-blue-700 font-bold"/>}
+                              <div className="hidden print-block text-[12px] font-bold text-gray-800 whitespace-pre-wrap mt-0.5">{item.marginTop === 'ระบุเอง...' ? item.customMarginTop : (item.marginTop || '-')}</div>
+                            </div>
+                            <div className="flex flex-col w-1/2"><span className="text-gray-600 font-bold">ด้านล่าง:</span>
+                              <select value={item.marginBottom} onChange={(e)=>handleItemChange(item.id, 'marginBottom', e.target.value)} className="border-b border-gray-300 outline-none print-hidden bg-transparent text-blue-700 font-bold"><option value="">-เลือก-</option>{(appDB.margins?.bottom || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
+                              {item.marginBottom === 'ระบุเอง...' && <input type="text" value={item.customMarginBottom} onChange={(e)=>handleItemChange(item.id, 'customMarginBottom', e.target.value)} placeholder="พิมพ์ระบุ..." className="border-b border-dashed border-gray-400 bg-transparent outline-none mt-1 print-hidden text-blue-700 font-bold"/>}
+                              <div className="hidden print-block text-[12px] font-bold text-gray-800 whitespace-pre-wrap mt-0.5">{item.marginBottom === 'ระบุเอง...' ? item.customMarginBottom : (item.marginBottom || '-')}</div>
+                            </div>
                           </div>
                         </div>
                       </div>
 
                       <div className="flex flex-col pt-2 border-t border-gray-200 shrink-0">
-                        <span className="font-bold text-red-600 text-xs">หมายเหตุ</span>
+                        <span className="font-bold text-red-600 text-[13px] mb-1">หมายเหตุ</span>
                         <textarea value={item.note} onChange={(e)=>handleItemChange(item.id, 'note', e.target.value)} rows="2" 
-                          className="w-full mt-1 border border-red-200 rounded p-1.5 text-red-600 focus:outline-none focus:border-red-400 print-border-none resize-none bg-red-50 text-[11px] leading-tight"
+                          className="w-full mt-1 border border-red-200 rounded p-1.5 text-red-600 focus:outline-none focus:border-red-400 print-hidden resize-none bg-red-50 text-[12px] leading-tight"
                           placeholder="ระบุหมายเหตุเพิ่มเติม (ถ้ามี)"></textarea>
+                        <div className="hidden print-block w-full text-red-600 text-[12px] leading-relaxed whitespace-pre-wrap font-bold">{item.note || '-'}</div>
                       </div>
 
                     </div>

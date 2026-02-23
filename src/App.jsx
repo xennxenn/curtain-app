@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Trash2, Printer, Image as ImageIcon, Upload, Save, X, MousePointerClick, Settings, Database, Eye, EyeOff, Move, Users, LogOut, FileText, ArrowLeft, Share2 } from 'lucide-react';
+import { Plus, Trash2, Printer, Image as ImageIcon, Upload, Save, X, MousePointerClick, Settings, Database, Eye, EyeOff, Move, Users, LogOut, FileText, ArrowLeft, Share2, ChevronLeft, ChevronRight, ImagePlus } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, doc, setDoc, getDoc, collection, getDocs, deleteDoc } from 'firebase/firestore';
@@ -26,6 +26,7 @@ const SVGS = {
 };
 
 const PRESET_COLORS = ['#EF4444', '#F97316', '#EAB308', '#22C55E', '#3B82F6', '#A855F7', '#EC4899', '#000000', '#FFFFFF'];
+const ACCEPTED_IMAGE_FORMATS = ".png,.jpeg,.jpg,.webp,.heic,.heif,image/*";
 
 const DEFAULT_DB = {
   curtainTypes: {
@@ -45,14 +46,39 @@ const DEFAULT_DB = {
   marginImages: {}
 };
 
-// Default Accounts
 const DEFAULT_ACCOUNTS = [
   { id: '1', username: 'Admin', password: '1234', role: 'admin', name: 'ผู้ดูแลระบบ' },
   { id: '2', username: 'T65099', password: '65099', role: 'user', name: 'พนักงานทดสอบ' }
 ];
 
-// --- Utility: Image Compression (Support PNG Transparency via WebP) ---
-const compressImage = (file, maxWidth = 1200, quality = 0.8) => {
+// --- Utility: HEIC/HEIF Image Support & Compression ---
+const loadHeic2Any = async () => {
+  if (window.heic2any) return window.heic2any;
+  return new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js";
+    script.onload = () => resolve(window.heic2any);
+    script.onerror = reject;
+    document.head.appendChild(script);
+  });
+};
+
+const processImageFile = async (file, maxWidth = 1200, quality = 0.8) => {
+  let processFile = file;
+  
+  if (file.name.toLowerCase().match(/\.(heic|heif)$/i)) {
+    try {
+      const heic2any = await loadHeic2Any();
+      const convertedBlob = await heic2any({ blob: file, toType: "image/jpeg", quality: 0.8 });
+      const blobArray = Array.isArray(convertedBlob) ? convertedBlob : [convertedBlob];
+      processFile = new File(blobArray, file.name.replace(/\.(heic|heif)$/i, '.jpg'), { type: "image/jpeg" });
+    } catch (err) {
+      console.error("HEIC conversion failed", err);
+      alert("ไม่สามารถแปลงไฟล์ HEIC/HEIF ได้ กรุณาใช้ไฟล์ JPG/PNG");
+      return null;
+    }
+  }
+
   return new Promise((resolve) => {
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -61,22 +87,63 @@ const compressImage = (file, maxWidth = 1200, quality = 0.8) => {
         const canvas = document.createElement('canvas');
         let width = img.width;
         let height = img.height;
-        if (width > maxWidth) {
-          height *= maxWidth / width;
-          width = maxWidth;
-        }
-        canvas.width = width;
-        canvas.height = height;
+        if (width > maxWidth) { height *= maxWidth / width; width = maxWidth; }
+        canvas.width = width; canvas.height = height;
         const ctx = canvas.getContext('2d');
-        // Do not fill background to preserve transparency
         ctx.drawImage(img, 0, 0, width, height);
-        // Use image/webp to preserve transparency while compressing
         resolve(canvas.toDataURL('image/webp', quality)); 
+      };
+      img.onerror = () => {
+        alert("ไฟล์รูปภาพไม่รองรับ หรือมีปัญหา");
+        resolve(null);
       };
       img.src = e.target.result;
     };
-    reader.readAsDataURL(file);
+    reader.onerror = () => resolve(null);
+    reader.readAsDataURL(processFile);
   });
+};
+
+// --- Component: Custom Project Fabric Modal ---
+const CustomFabricModal = ({ show, onClose, onAdd }) => {
+  if (!show) return null;
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    const f = document.getElementById('customFabImg').files[0];
+    const subType = document.getElementById('customFabSubType').value;
+    const name = document.getElementById('customFabName').value;
+    const color = document.getElementById('customFabColor').value;
+    if(!subType || !name || !color || !f) return alert('กรุณากรอกข้อมูลและเลือกรูปภาพให้ครบถ้วน');
+    
+    const compressed = await processImageFile(f, 600, 0.8);
+    if (!compressed) return; 
+    onAdd({ id: Date.now().toString(), mainType: 'ผ้านอกระบบ (เฉพาะงานนี้)', subType, name, color, image: compressed });
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/60 z-[1000000] flex items-center justify-center p-4">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-md flex flex-col overflow-hidden">
+        <div className="flex justify-between items-center p-4 border-b bg-indigo-50">
+          <h2 className="text-lg font-bold flex items-center text-indigo-800"><ImagePlus className="mr-2"/> เพิ่มผ้านอกระบบ (เฉพาะงานนี้)</h2>
+          <button onClick={onClose} className="text-gray-500 hover:text-red-500"><X size={20}/></button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-4 flex flex-col gap-3">
+          <div><label className="text-xs font-bold block mb-1">ประเภทม่าน (เช่น ผ้าม่านทึบ, ม่านโปร่ง, มู่ลี่)</label><input id="customFabSubType" type="text" className="w-full border p-2 rounded text-sm focus:outline-indigo-500" placeholder="ผ้าม่านทึบ พิเศษ"/></div>
+          <div><label className="text-xs font-bold block mb-1">รุ่น / ชื่อผ้า</label><input id="customFabName" type="text" className="w-full border p-2 rounded text-sm focus:outline-indigo-500" placeholder="เช่น รุ่น A"/></div>
+          <div><label className="text-xs font-bold block mb-1">สี</label><input id="customFabColor" type="text" className="w-full border p-2 rounded text-sm focus:outline-indigo-500" placeholder="เช่น สีเทาเข้ม"/></div>
+          <div>
+            <label className="text-xs font-bold block mb-1">รูปตัวอย่างเนื้อผ้า</label>
+            <label className="bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-700 px-3 py-2 rounded text-sm cursor-pointer w-full flex justify-center items-center font-bold">
+              <Upload size={16} className="mr-2"/> เลือกรูปภาพ
+              <input type="file" accept={ACCEPTED_IMAGE_FORMATS} className="hidden" id="customFabImg"/>
+            </label>
+          </div>
+          <button type="submit" className="bg-indigo-600 text-white font-bold py-2 rounded mt-2 shadow hover:bg-indigo-700">บันทึกผ้าเข้าใบงาน</button>
+        </form>
+      </div>
+    </div>
+  );
 };
 
 // --- Component: Database Settings Modal ---
@@ -85,8 +152,6 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
   const [activeTab, setActiveTab] = useState('fabrics');
   const [cat, setCat] = useState('ผ้าม่าน');
   const [type, setType] = useState('');
-  
-  // Local state for textareas to fix the typing/jumping bug
   const [localText, setLocalText] = useState({});
 
   useEffect(() => {
@@ -105,7 +170,6 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
 
   const handleLocalText = (key, value) => {
     setLocalText(prev => ({...prev, [key]: value}));
-    // Sync array to appDB without filtering empty lines yet (allows typing Enter)
     const arr = value.split('\n'); 
     if(key.startsWith('margins_')) {
       const subKey = key.split('_')[1];
@@ -116,7 +180,6 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
   };
 
   const handleSaveAndClose = () => {
-    // Clean up empty lines before saving
     const cleanedDB = JSON.parse(JSON.stringify(appDB));
     ['styles', 'actions', 'tracks', 'brackets', 'accessories', 'hangStyles'].forEach(k => {
        if(cleanedDB[k]) cleanedDB[k] = cleanedDB[k].map(s=>s.trim()).filter(Boolean);
@@ -127,15 +190,16 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
        });
     }
     setAppDB(cleanedDB);
-    saveData(cleanedDB); // Force save
+    localStorage.setItem('backupAppDB', JSON.stringify(cleanedDB)); // Backup locally
+    saveData(cleanedDB);
     setShowDBSettings(false);
   };
 
   const handleImageUpload = (callback) => async (e) => {
     const file = e.target.files[0];
     if (file) {
-      const compressedDataUrl = await compressImage(file, 800, 0.8);
-      callback(compressedDataUrl);
+      const compressedDataUrl = await processImageFile(file, 800, 0.8);
+      if(compressedDataUrl) callback(compressedDataUrl);
     }
   };
 
@@ -147,12 +211,35 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
     setAppDB(newDB);
   };
 
+  const moveFabricType = (dir, t) => {
+    const obj = appDB.curtainTypes[cat];
+    const keys = Object.keys(obj);
+    const idx = keys.indexOf(t);
+    if (dir === -1 && idx > 0) [keys[idx-1], keys[idx]] = [keys[idx], keys[idx-1]];
+    else if (dir === 1 && idx < keys.length - 1) [keys[idx], keys[idx+1]] = [keys[idx+1], keys[idx]];
+    else return;
+    const newObj = {};
+    keys.forEach(k => newObj[k] = obj[k]);
+    setAppDB(prev => ({...prev, curtainTypes: {...prev.curtainTypes, [cat]: newObj}}));
+  };
+
+  const deleteFabricType = (t) => {
+    if(window.confirm(`ต้องการลบหมวดหมู่ "${t}" ใช่หรือไม่? ข้อมูลผ้าด้านในจะถูกลบทั้งหมด`)) {
+      const newDB = JSON.parse(JSON.stringify(appDB));
+      delete newDB.curtainTypes[cat][t];
+      setAppDB(newDB);
+      if(type === t) setType('');
+    }
+  };
+
   const addFabricItem = async () => {
     const n = document.getElementById('addFabName').value;
     const c = document.getElementById('addFabColor').value;
     const f = document.getElementById('addFabImg').files[0];
     if(n && c && f) {
-      const compressedImg = await compressImage(f, 600, 0.8);
+      const compressedImg = await processImageFile(f, 600, 0.8);
+      if(!compressedImg) return;
+      
       const newDB = JSON.parse(JSON.stringify(appDB));
       if(!newDB.curtainTypes[cat][type]) newDB.curtainTypes[cat][type] = {};
       if(!newDB.curtainTypes[cat][type][n]) newDB.curtainTypes[cat][type][n] = {};
@@ -199,8 +286,15 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
                 <div className="bg-gray-50 p-4 border rounded-lg">
                   <label className="block text-sm font-bold mb-3">2. ประเภทม่าน ({cat})</label>
                   <div className="flex flex-wrap gap-2 mb-4">
-                    {Object.keys((appDB.curtainTypes && appDB.curtainTypes[cat]) || {}).map(t => (
-                      <button key={t} onClick={()=>setType(t)} className={`px-4 py-1.5 border rounded text-sm transition-colors ${type===t ? 'bg-indigo-600 text-white border-indigo-600 shadow' : 'bg-white hover:bg-gray-50'}`}>{t}</button>
+                    {Object.keys((appDB.curtainTypes && appDB.curtainTypes[cat]) || {}).map((t, idx, arr) => (
+                      <div key={t} className={`flex items-center border rounded transition-colors ${type===t ? 'bg-indigo-600 text-white border-indigo-600 shadow' : 'bg-white hover:bg-gray-100'}`}>
+                        <button onClick={()=>setType(t)} className="px-4 py-1.5 text-sm font-bold">{t}</button>
+                        <div className="flex flex-col border-l border-white/20">
+                          <button onClick={()=>moveFabricType(-1, t)} disabled={idx===0} className="px-1 py-0.5 hover:bg-black/20 disabled:opacity-30"><ChevronLeft size={10} className="rotate-90"/></button>
+                          <button onClick={()=>moveFabricType(1, t)} disabled={idx===arr.length-1} className="px-1 py-0.5 hover:bg-black/20 disabled:opacity-30"><ChevronRight size={10} className="rotate-90"/></button>
+                        </div>
+                        <button onClick={()=>deleteFabricType(t)} className="px-2 py-1.5 border-l border-white/20 hover:bg-red-500 hover:text-white text-red-500"><Trash2 size={12}/></button>
+                      </div>
                     ))}
                   </div>
                   <div className="flex gap-2">
@@ -234,7 +328,7 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
                           <input type="text" id="addFabColor" placeholder="ชื่อสี (เช่น GREY)" className="border px-2 py-1.5 rounded text-sm w-1/3 focus:outline-indigo-500"/>
                           <label className="bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-700 px-3 py-1.5 rounded text-sm cursor-pointer flex-1 flex justify-center items-center">
                             <Upload size={14} className="mr-1"/> เลือกรูปภาพ
-                            <input type="file" accept="image/*" className="hidden" id="addFabImg"/>
+                            <input type="file" accept={ACCEPTED_IMAGE_FORMATS} className="hidden" id="addFabImg"/>
                           </label>
                        </div>
                        <button onClick={addFabricItem} className="bg-indigo-600 text-white py-1.5 rounded text-sm font-bold hover:bg-indigo-700 mt-1">บันทึกรายการผ้า</button>
@@ -255,7 +349,7 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
                          <div key={styleName} className="flex items-center justify-between border p-2 rounded bg-gray-50">
                            <span className="text-sm font-bold flex-1 truncate mr-2">{styleName}</span>
                            {appDB.styleImages?.[styleName] ? <img src={appDB.styleImages[styleName]} className="w-10 h-10 object-cover bg-white border mr-2 rounded"/> : <div className="w-10 h-10 bg-gray-200 border border-dashed flex items-center justify-center mr-2 rounded text-[8px] text-gray-500">ไม่มีรูป</div>}
-                           <label className="bg-blue-100 hover:bg-blue-200 text-blue-700 px-2 py-1 rounded text-xs cursor-pointer">อัปโหลด<input type="file" accept="image/*" className="hidden" onChange={handleImageUpload((base64) => { setAppDB(prev => ({ ...prev, styleImages: { ...(prev.styleImages || {}), [styleName]: base64 } })); })}/></label>
+                           <label className="bg-blue-100 hover:bg-blue-200 text-blue-700 px-2 py-1 rounded text-xs cursor-pointer">อัปโหลด<input type="file" accept={ACCEPTED_IMAGE_FORMATS} className="hidden" onChange={handleImageUpload((base64) => { setAppDB(prev => ({ ...prev, styleImages: { ...(prev.styleImages || {}), [styleName]: base64 } })); })}/></label>
                          </div>
                        ))}
                      </div>
@@ -282,7 +376,7 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
                         </select>
                         <label className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded text-sm font-bold text-center cursor-pointer shadow-sm transition-colors mt-2">
                           <Upload size={16} className="inline mr-2"/> อัปโหลดรูป Mask
-                          <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload((base64) => {
+                          <input type="file" accept={ACCEPTED_IMAGE_FORMATS} className="hidden" onChange={handleImageUpload((base64) => {
                             const st = document.getElementById('maskStyle').value;
                             const ac = document.getElementById('maskAction').value || 'ALL';
                             if(st && ac) {
@@ -339,7 +433,7 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
                          <div key={marginName} className="flex items-center justify-between border p-2 rounded bg-gray-50">
                            <span className="text-sm font-bold flex-1 truncate mr-2">{marginName}</span>
                            {appDB.marginImages?.[marginName] ? <img src={appDB.marginImages[marginName]} className="w-10 h-10 object-cover bg-white border mr-2 rounded"/> : <div className="w-10 h-10 bg-gray-200 border border-dashed flex items-center justify-center mr-2 rounded text-[8px] text-gray-500">ไม่มีรูป</div>}
-                           <label className="bg-blue-100 hover:bg-blue-200 text-blue-700 px-2 py-1 rounded text-xs cursor-pointer">อัปโหลด<input type="file" accept="image/*" className="hidden" onChange={handleImageUpload((base64) => { setAppDB(prev => ({ ...prev, marginImages: { ...(prev.marginImages || {}), [marginName]: base64 } })); })}/></label>
+                           <label className="bg-blue-100 hover:bg-blue-200 text-blue-700 px-2 py-1 rounded text-xs cursor-pointer">อัปโหลด<input type="file" accept={ACCEPTED_IMAGE_FORMATS} className="hidden" onChange={handleImageUpload((base64) => { setAppDB(prev => ({ ...prev, marginImages: { ...(prev.marginImages || {}), [marginName]: base64 } })); })}/></label>
                          </div>
                        ))}
                      </div>
@@ -375,7 +469,7 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
   );
 };
 
-// --- Component: User Management Modal (Admin Only) ---
+// --- Component: User Management Modal ---
 const UserManagementModal = ({ show, onClose }) => {
   const [accounts, setAccounts] = useState([]);
   const [newN, setNewN] = useState('');
@@ -463,11 +557,17 @@ const LoginScreen = ({ onLogin }) => {
       if (snap.exists() && snap.data().users) accounts = snap.data().users;
       
       const user = accounts.find(u => u.username === username && u.password === password);
-      if (user) onLogin(user);
+      if (user) {
+        localStorage.setItem('curtainAppUser', JSON.stringify(user));
+        onLogin(user);
+      }
       else setError('Username หรือ Password ไม่ถูกต้อง');
     } catch(err) {
       const user = DEFAULT_ACCOUNTS.find(u => u.username === username && u.password === password);
-      if (user) onLogin(user); else setError('ระบบขัดข้อง กรุณาลองใหม่');
+      if (user) {
+        localStorage.setItem('curtainAppUser', JSON.stringify(user));
+        onLogin(user);
+      } else setError('ระบบขัดข้อง กรุณาลองใหม่');
     }
   };
 
@@ -540,7 +640,7 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange }) => {
     return () => {
       window.removeEventListener('mousemove', handleGlobalPointMove);
       window.removeEventListener('mouseup', handleGlobalPointUp);
-    };
+    }
   }, [pointDrag, pan, zoom, item.areas, item.id]);
 
   useEffect(() => {
@@ -563,7 +663,7 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange }) => {
     return () => {
       window.removeEventListener('mousemove', handleGlobalPanelMove);
       window.removeEventListener('mouseup', handleGlobalPanelUp);
-    };
+    }
   }, [draggingPanel, panelDragStart]);
 
   const onPanelMouseDown = (e) => {
@@ -579,8 +679,8 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange }) => {
     const newAreaId = Date.now().toString() + '_a' + (item.areas.length + 1);
     const newArea = { 
       id: newAreaId, points: [], width: '', height: '', 
-      lineColor: '#EF4444', lineWidth: 2, fabrics: [],
-      labelColor: '#EF4444', labelSize: 14, wPos: 'top', hPos: 'right', // Increased default font size
+      lineColor: '#EF4444', lineWidth: 2, fabrics: [], layers: 2,
+      labelColor: '#EF4444', labelSize: 14, wPos: 'top', hPos: 'right',
       maskType: '', maskPct: 20, maskOpacity: 87
     };
     handleItemChange(item.id, 'areas', [...item.areas, newArea]);
@@ -647,8 +747,8 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange }) => {
   const handleImageUpload = async (e) => {
     const file = e.target.files[0];
     if (file) {
-      const compressedDataUrl = await compressImage(file, 1200, 0.8);
-      handleItemChange(item.id, 'image', compressedDataUrl);
+      const compressedDataUrl = await processImageFile(file, 1200, 0.8);
+      if(compressedDataUrl) handleItemChange(item.id, 'image', compressedDataUrl);
     }
   };
 
@@ -665,6 +765,11 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange }) => {
           <div style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: '0 0' }} className="w-full h-full relative print:transform-none transition-transform duration-75 ease-out">
             <img src={item.image} alt="Window view" className="w-full h-full object-cover pointer-events-none" />
             
+            <label className="absolute top-2 left-2 bg-white/90 border border-gray-300 text-gray-700 px-3 py-1.5 rounded shadow-sm hover:bg-white no-print z-40 cursor-pointer flex items-center text-xs font-bold transition-colors" title="เปลี่ยนเฉพาะรูปพื้นหลัง">
+              <Upload size={14} className="mr-1.5"/> เปลี่ยนรูปหน้างาน
+              <input type="file" accept={ACCEPTED_IMAGE_FORMATS} className="hidden" onChange={handleImageUpload} />
+            </label>
+
             <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none">
               <defs>
                 {item.areas.map(area => (
@@ -683,14 +788,14 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange }) => {
                 const w = maxX - minX;
                 const h = maxY - minY;
                 
-                const autoMaskType = item.styleMain?.match(/ม้วน|พับ|มู่ลี่/) ? 'height' : 'width';
+                const styleMain1 = item.styleMain1 || item.styleMain || '';
+                const autoMaskType = styleMain1.match(/ม้วน|พับ|มู่ลี่/) ? 'height' : 'width';
                 const maskType = area.maskType || autoMaskType;
                 const mPct = (area.maskPct || 20) / 100;
                 const maskOpacity = (area.maskOpacity ?? 87) / 100;
                 
-                const style = item.styleMain;
-                const action = item.styleAction || '';
-                const masks = appDB.masks?.[style] || {};
+                const action = item.styleAction1 || item.styleAction || '';
+                const masks = appDB.masks?.[styleMain1] || {};
                 const maskImgFallback = masks[action] || masks['ALL'] || Object.values(masks)[0];
                 let maskElements = [];
                 
@@ -741,8 +846,7 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange }) => {
                     })}
                     {area.points.map((p, idx) => (
                       <g key={idx} className="cursor-move" style={{ pointerEvents: 'auto' }} onMouseDown={(e) => handlePointMouseDown(e, area.id, idx)}>
-                        <circle cx={`${p.x}%`} cy={`${p.y}%`} r={6/zoom} fill="white" stroke={area.lineColor} strokeWidth={2/zoom} />
-                        <text x={`${p.x}%`} y={`${p.y}%`} dy={3/zoom} fill={area.lineColor} fontSize={10/zoom} fontWeight="bold" textAnchor="middle" style={{ pointerEvents: 'none' }}>{idx + 1}</text>
+                        <circle cx={`${p.x}%`} cy={`${p.y}%`} r={4/zoom} fill="white" stroke={area.lineColor} strokeWidth={2/zoom} />
                       </g>
                     ))}
                   </g>
@@ -758,15 +862,58 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange }) => {
 
             {item.areas.map(area => {
               if(area.points.length === 0) return null;
-              const minX = Math.min(...area.points.map(p=>p.x)), maxX = Math.max(...area.points.map(p=>p.x));
-              const minY = Math.min(...area.points.map(p=>p.y)), maxY = Math.max(...area.points.map(p=>p.y));
-              const midX = (minX + maxX) / 2, midY = (minY + maxY) / 2;
-              const wPos = area.wPos || 'top', hPos = area.hPos || 'right';
+              
+              let wMidX = 50, wMidY = 0, wAng = 0;
+              let hMidX = 0, hMidY = 50, hAng = -90;
+
+              if (area.points.length >= 2) {
+                let edges = [];
+                for(let i=0; i<area.points.length; i++) {
+                  let p1 = area.points[i];
+                  let p2 = area.points[(i+1)%area.points.length];
+                  edges.push({ p1, p2, midX: (p1.x+p2.x)/2, midY: (p1.y+p2.y)/2, dx: p2.x - p1.x, dy: p2.y - p1.y });
+                }
+                
+                let tEdge = edges.reduce((prev, curr) => prev.midY < curr.midY ? prev : curr);
+                let bEdge = edges.reduce((prev, curr) => prev.midY > curr.midY ? prev : curr);
+                let lEdge = edges.reduce((prev, curr) => prev.midX < curr.midX ? prev : curr);
+                let rEdge = edges.reduce((prev, curr) => prev.midX > curr.midX ? prev : curr);
+
+                const getVisualAngle = (edge, defaultAng) => {
+                  if (!containerRef.current) return defaultAng;
+                  const rect = containerRef.current.getBoundingClientRect();
+                  const pxDx = edge.dx * (rect.width / 100);
+                  const pxDy = edge.dy * (rect.height / 100);
+                  if (pxDx === 0 && pxDy === 0) return defaultAng;
+                  let ang = Math.atan2(pxDy, pxDx) * (180 / Math.PI);
+                  if (ang > 90 || ang < -90) ang += 180;
+                  return ang;
+                };
+
+                const wPos = area.wPos || 'top';
+                const hPos = area.hPos || 'right';
+
+                if (wPos === 'top') { wMidX = tEdge.midX; wMidY = tEdge.midY; wAng = getVisualAngle(tEdge, 0); }
+                else { wMidX = bEdge.midX; wMidY = bEdge.midY; wAng = getVisualAngle(bEdge, 0); }
+
+                if (hPos === 'left') { hMidX = lEdge.midX; hMidY = lEdge.midY; hAng = getVisualAngle(lEdge, -90); }
+                else { hMidX = rEdge.midX; hMidY = rEdge.midY; hAng = getVisualAngle(rEdge, 90); }
+              }
+
               const lblSize = (area.labelSize || 14) / zoom;
+              
               return (
                 <div key={`labels-${area.id}`} className="absolute inset-0 pointer-events-none">
-                  {area.width && (<div style={{ position: 'absolute', left: `${midX}%`, top: wPos === 'top' ? `${minY}%` : `${maxY}%`, transform: `translate(-50%, ${wPos === 'top' ? '-100%' : '0'})`, color: area.labelColor || area.lineColor, fontSize: `${lblSize}px`, marginTop: wPos === 'top' ? `-${4/zoom}px` : `${4/zoom}px` }} className="bg-white/95 px-2 py-0.5 rounded shadow-md border border-gray-300 font-bold whitespace-nowrap z-10">ความกว้าง {area.width} ซม.</div>)}
-                  {area.height && (<div style={{ position: 'absolute', top: `${midY}%`, left: hPos === 'left' ? `${minX}%` : `${maxX}%`, transform: `translate(${hPos === 'left' ? '-100%' : '0'}, -50%)`, color: area.labelColor || area.lineColor, fontSize: `${lblSize}px`, marginLeft: hPos === 'left' ? `-${4/zoom}px` : `${4/zoom}px` }} className="bg-white/95 px-2 py-0.5 rounded shadow-md border border-gray-300 font-bold whitespace-nowrap z-10">ความสูง {area.height} ซม.</div>)}
+                  {area.width && (
+                    <div style={{ position: 'absolute', left: `${wMidX}%`, top: `${wMidY}%`, transform: `translate(-50%, -50%) rotate(${wAng}deg)`, color: area.labelColor || area.lineColor, fontSize: `${lblSize}px`, whiteSpace: 'nowrap' }} className="bg-white/95 px-2 py-0.5 rounded shadow-md border border-gray-300 font-bold z-10 text-center">
+                      {area.width} ซม.
+                    </div>
+                  )}
+                  {area.height && (
+                    <div style={{ position: 'absolute', left: `${hMidX}%`, top: `${hMidY}%`, transform: `translate(-50%, -50%) rotate(${hAng}deg)`, color: area.labelColor || area.lineColor, fontSize: `${lblSize}px`, whiteSpace: 'nowrap' }} className="bg-white/95 px-2 py-0.5 rounded shadow-md border border-gray-300 font-bold z-10 text-center">
+                      {area.height} ซม.
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -775,7 +922,7 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange }) => {
           <div className="absolute inset-0 flex items-center justify-center opacity-100 bg-gray-50 no-print">
             <label className="cursor-pointer bg-white text-blue-600 border border-blue-600 px-6 py-3 rounded-lg shadow-sm flex items-center hover:bg-blue-50 transition-colors font-bold">
               <Upload size={20} className="mr-2" /> อัปโหลดรูปหน้างาน
-              <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
+              <input type="file" accept={ACCEPTED_IMAGE_FORMATS} className="hidden" onChange={handleImageUpload} />
             </label>
           </div>
         )}
@@ -805,11 +952,12 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange }) => {
 
             {item.areas.map((area, idx) => {
               const isActive = activeAreaId === area.id;
-              const autoMaskType = item.styleMain?.match(/ม้วน|พับ|มู่ลี่/) ? 'height' : 'width';
+              const styleMain1 = item.styleMain1 || item.styleMain || '';
+              const autoMaskType = styleMain1.match(/ม้วน|พับ|มู่ลี่/) ? 'height' : 'width';
               return (
                 <div key={area.id} className={`flex flex-col gap-2 border p-2.5 rounded bg-white transition-all ${isActive ? 'border-blue-400 ring-2 ring-blue-100 shadow-md' : 'border-gray-200'}`}>
                   <div className="flex flex-wrap gap-1 items-center justify-between">
-                    <button onClick={() => { setActiveAreaId(isActive ? null : area.id); setMode('draw'); }} className={`px-2 py-1 rounded border font-bold flex items-center text-xs ${isActive ? 'bg-blue-50 text-blue-600 border-blue-200' : 'bg-gray-100 text-gray-700 border-gray-200 hover:bg-gray-200'}`}>พ.{idx + 1}</button>
+                    <button onClick={() => { setActiveAreaId(isActive ? null : area.id); setMode('draw'); }} className={`px-2 py-1 rounded border font-bold flex items-center text-xs ${isActive ? 'bg-blue-50 text-blue-600 border-blue-200' : 'bg-gray-100 text-gray-700 border-gray-200 hover:bg-gray-200'}`}>บานที่ {idx + 1}</button>
                     <div className="flex items-center gap-1.5 ml-auto">
                        <button onClick={() => handleUpdateArea(area.id, 'points', [])} className="text-xs text-orange-600 hover:bg-orange-50 px-2 py-1 rounded border border-orange-200 font-bold">ล้างเส้น</button>
                        <button onClick={() => handleRemoveArea(area.id)} className="bg-red-50 text-red-500 hover:bg-red-100 hover:text-red-700 px-2 py-1 rounded border border-red-200" title="ลบพื้นที่"><Trash2 size={14}/></button>
@@ -895,31 +1043,29 @@ const App = () => {
   const [appDB, setAppDB] = useState(DEFAULT_DB);
   const [showDBSettings, setShowDBSettings] = useState(false);
   const [showUserMgmt, setShowUserMgmt] = useState(false);
+  const [showCustomFabricModal, setShowCustomFabricModal] = useState(false);
 
   const [generalInfo, setGeneralInfo] = useState({
     surveyDate: new Date().toISOString().split('T')[0], confirmDate: '', installDates: [], location: '',
-    customerName: '', customerPhone: '', agentName: '', agentPhone: '',
+    customerName: '', customerPhone: '', agentName: '', agentPhone: '', customFabrics: [],
     terms: `กรณีมีการเปลี่ยนแปลงรายละเอียดจากที่ตกลงไว้ในใบสรุปงานติดตั้งผ้าม่านนี้ ผู้สั่งซื้อยินยอมที่จะชำระเงินเพิ่มในส่วนของ\n(A) ค่าแก้ไขผ้าม่านและอุปกรณ์ เช่น ความสูง ความกว้างของผ้าม่าน รางม่าน ที่เกิดจากหน้างานเปลี่ยนแปลง บิ้วท์อินเพิ่มเติม ฯลฯ\n(B) ค่าติดตั้งรางละ 200 บาท\n(C) ค่าเดินทาง 1,500 บาท ใน กทม. (ต่างจังหวัดคิดตามระยะทาง)\nการเลื่อนคิวงานติตตั้ง ขอความกรุณาลูกค้าแจ้งพนักงานขายก่อนวันติดตั้ง อย่างน้อย 5 วันทำการ ถ้าน้อยกว่า 5 วัน จะมีค่าดำเนินการ 3,000 บาท / ครั้ง\nบริษัทฯ จะรับผิดชอบดำเนินการแก้ไขงาน ในกรณีที่ความผิดพลาดเกิดจากบริษัทฯ เท่านั้น`
   });
   const [tempInstallDate, setTempInstallDate] = useState('');
   const [items, setItems] = useState([]);
 
   useEffect(() => {
+    const storedUser = localStorage.getItem('curtainAppUser');
+    if (storedUser) setAppUser(JSON.parse(storedUser));
+
     const initAuth = async () => {
       try {
         if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          try {
-            await signInWithCustomToken(auth, __initial_auth_token);
-          } catch (tokenError) {
-            console.warn("Custom token failed, falling back to anonymous auth:", tokenError);
-            await signInAnonymously(auth);
-          }
+          try { await signInWithCustomToken(auth, __initial_auth_token); } 
+          catch (tokenError) { await signInAnonymously(auth); }
         } else {
           await signInAnonymously(auth);
         }
-      } catch (err) {
-        console.error("Auth Error:", err);
-      }
+      } catch (err) { console.error("Auth Error:", err); }
     };
     initAuth();
     const unsubscribe = onAuthStateChanged(auth, setFirebaseUser);
@@ -949,11 +1095,25 @@ const App = () => {
       try {
         const settingsRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'appDB');
         const snap = await getDoc(settingsRef);
-        if (snap.exists()) setAppDB(snap.data());
-      } catch(e) { console.error(e); }
+        if (snap.exists()) {
+          setAppDB(snap.data());
+          localStorage.setItem('backupAppDB', JSON.stringify(snap.data()));
+        } else {
+          const localBackup = localStorage.getItem('backupAppDB');
+          if(localBackup) setAppDB(JSON.parse(localBackup));
+        }
+      } catch(e) { 
+        const localBackup = localStorage.getItem('backupAppDB');
+        if(localBackup) setAppDB(JSON.parse(localBackup));
+      }
     };
     loadDB();
   }, [firebaseUser, appUser]);
+
+  const handleLogout = () => {
+    localStorage.removeItem('curtainAppUser');
+    setAppUser(null);
+  };
 
   if (!appUser) return <LoginScreen onLogin={(user) => setAppUser(user)} />;
 
@@ -961,7 +1121,7 @@ const App = () => {
     setCurrentProjectId(Date.now().toString());
     setGeneralInfo({
       surveyDate: new Date().toISOString().split('T')[0], confirmDate: '', installDates: [], location: '',
-      customerName: '', customerPhone: '', agentName: '', agentPhone: '',
+      customerName: '', customerPhone: '', agentName: '', agentPhone: '', customFabrics: [],
       terms: `กรณีมีการเปลี่ยนแปลงรายละเอียดจากที่ตกลงไว้ในใบสรุปงานติดตั้งผ้าม่านนี้ ผู้สั่งซื้อยินยอมที่จะชำระเงินเพิ่มในส่วนของ\n(A) ค่าแก้ไขผ้าม่านและอุปกรณ์ เช่น ความสูง ความกว้างของผ้าม่าน รางม่าน ที่เกิดจากหน้างานเปลี่ยนแปลง บิ้วท์อินเพิ่มเติม ฯลฯ\n(B) ค่าติดตั้งรางละ 200 บาท\n(C) ค่าเดินทาง 1,500 บาท ใน กทม. (ต่างจังหวัดคิดตามระยะทาง)\nการเลื่อนคิวงานติตตั้ง ขอความกรุณาลูกค้าแจ้งพนักงานขายก่อนวันติดตั้ง อย่างน้อย 5 วันทำการ ถ้าน้อยกว่า 5 วัน จะมีค่าดำเนินการ 3,000 บาท / ครั้ง\nบริษัทฯ จะรับผิดชอบดำเนินการแก้ไขงาน ในกรณีที่ความผิดพลาดเกิดจากบริษัทฯ เท่านั้น`
     });
     setItems([]);
@@ -971,9 +1131,16 @@ const App = () => {
 
   const handleEdit = (proj) => {
     setCurrentProjectId(proj.id);
-    setGeneralInfo(proj.generalInfo || {});
-    setItems(proj.items || []);
-    if (!proj.items || proj.items.length === 0) addItem();
+    setGeneralInfo({ ...proj.generalInfo, customFabrics: proj.generalInfo?.customFabrics || [] });
+    // Migrate older items to support layers if needed
+    const migratedItems = (proj.items || []).map(item => ({
+      ...item,
+      layers: item.layers || 2,
+      styleMain1: item.styleMain1 || item.styleMain || '',
+      styleAction1: item.styleAction1 || item.styleAction || ''
+    }));
+    setItems(migratedItems);
+    if (migratedItems.length === 0) addItem();
     setView('editor');
   };
 
@@ -1016,21 +1183,70 @@ const App = () => {
 
   const addItem = () => {
     setItems(prev => [...prev, {
-      id: Date.now().toString(), image: null,
+      id: Date.now().toString(), image: null, layers: 2,
       areas: [{ id: Date.now().toString() + '_a1', points: [], width: '', height: '', lineColor: '#EF4444', lineWidth: 2, fabrics: [], labelColor: '#EF4444', labelSize: 14, wPos: 'top', hPos: 'right', maskPct: 20, maskOpacity: 87, maskType: '' }],
-      roomPos: '', styleMain: '', styleAction: '', tracks: [], bracket: '', accessories: [], hangStyle: '',
+      roomPos: '', styleMain1: '', styleAction1: '', styleMain2: '', styleAction2: '', tracks: [], bracket: '', accessories: [], hangStyle: '',
       marginLeft: '', customMarginLeft: '', marginRight: '', customMarginRight: '', marginTop: '', customMarginTop: '', marginBottom: '', customMarginBottom: '', note: ''
     }]);
   };
-  const removeItem = (id) => setItems(items.filter(item => item.id !== id));
-  const handleItemChange = (id, field, value) => setItems(items.map(item => item.id === id ? { ...item, [field]: value } : item));
+  
+  const removeItem = (id) => setItems(prev => prev.filter(item => item.id !== id));
+  
+  // Safe functional state update to handle synchronous rapid changes (like layers toggle)
+  const handleItemChange = (id, field, value) => {
+    setItems(prevItems => prevItems.map(item => item.id === id ? { ...item, [field]: value } : item));
+  };
 
-  const addFabricToArea = (itemId, areaId) => handleItemChange(itemId, 'areas', items.find(i=>i.id===itemId).areas.map(a => a.id === areaId ? { ...a, fabrics: [...a.fabrics, { id: Date.now().toString(), mainType: '', subType: '', name: '', color: '' }] } : a));
-  const updateFabric = (itemId, areaId, fabricId, field, value) => handleItemChange(itemId, 'areas', items.find(i=>i.id===itemId).areas.map(a => a.id === areaId ? { ...a, fabrics: a.fabrics.map(f => f.id === fabricId ? { ...f, [field]: value, ...(field === 'mainType' ? {subType:'',name:'',color:''} : {}), ...(field === 'subType' ? {name:'',color:''} : {}), ...(field === 'name' ? {color:''} : {}) } : f) } : a));
-  const removeFabric = (itemId, areaId, fabricId) => handleItemChange(itemId, 'areas', items.find(i=>i.id===itemId).areas.map(a => a.id === areaId ? { ...a, fabrics: a.fabrics.filter(f => f.id !== fabricId) } : a));
+  const handleLayerChange = (id, newLayerVal) => {
+    setItems(prevItems => prevItems.map(item => {
+      if (item.id === id) {
+        if (newLayerVal === 1) return { ...item, layers: 1, styleMain2: '', styleAction2: '' };
+        return { ...item, layers: 2 };
+      }
+      return item;
+    }));
+  };
+
+  const addFabricToArea = (itemId, areaId) => {
+    setItems(prevItems => prevItems.map(item => item.id === itemId ? {
+      ...item,
+      areas: item.areas.map(a => a.id === areaId ? {
+        ...a, fabrics: [...a.fabrics, { id: Date.now().toString(), mainType: '', subType: '', name: '', color: '' }]
+      } : a)
+    } : item));
+  };
+  
+  const updateFabric = (itemId, areaId, fabricId, field, value) => {
+    setItems(prevItems => prevItems.map(item => item.id === itemId ? {
+      ...item,
+      areas: item.areas.map(a => a.id === areaId ? {
+        ...a, fabrics: a.fabrics.map(f => f.id === fabricId ? { 
+          ...f, [field]: value, 
+          ...(field === 'mainType' ? {subType:'',name:'',color:''} : {}), 
+          ...(field === 'subType' ? {name:'',color:''} : {}), 
+          ...(field === 'name' ? {color:''} : {}) 
+        } : f)
+      } : a)
+    } : item));
+  };
+  
+  const removeFabric = (itemId, areaId, fabricId) => {
+    setItems(prevItems => prevItems.map(item => item.id === itemId ? {
+      ...item,
+      areas: item.areas.map(a => a.id === areaId ? {
+        ...a, fabrics: a.fabrics.filter(f => f.id !== fabricId)
+      } : a)
+    } : item));
+  };
+
   const handleMultiSelect = (itemId, field, value) => {
-    const currentList = items.find(i => i.id === itemId)[field] || [];
-    handleItemChange(itemId, field, currentList.includes(value) ? currentList.filter(v => v !== value) : [...currentList, value]);
+    setItems(prevItems => prevItems.map(item => {
+      if (item.id === itemId) {
+        const currentList = item[field] || [];
+        return { ...item, [field]: currentList.includes(value) ? currentList.filter(v => v !== value) : [...currentList, value] };
+      }
+      return item;
+    }));
   };
 
   if (view === 'dashboard') {
@@ -1045,7 +1261,7 @@ const App = () => {
             </div>
             <div className="flex gap-3">
               {appUser.role === 'admin' && <button onClick={()=>setShowUserMgmt(true)} className="bg-purple-600 text-white px-4 py-2 rounded flex items-center font-bold hover:bg-purple-700 shadow"><Users size={16} className="mr-2"/> จัดการพนักงาน</button>}
-              <button onClick={()=>setAppUser(null)} className="bg-red-500 text-white px-4 py-2 rounded flex items-center font-bold hover:bg-red-600 shadow"><LogOut size={16} className="mr-2"/> ออกจากระบบ</button>
+              <button onClick={handleLogout} className="bg-red-500 text-white px-4 py-2 rounded flex items-center font-bold hover:bg-red-600 shadow"><LogOut size={16} className="mr-2"/> ออกจากระบบ</button>
             </div>
           </div>
 
@@ -1083,6 +1299,7 @@ const App = () => {
   return (
     <div className="min-h-screen bg-gray-100 py-8 font-sans">
       <DatabaseModal appDB={appDB} setAppDB={setAppDB} showDBSettings={showDBSettings} setShowDBSettings={setShowDBSettings} saveData={saveData} />
+      <CustomFabricModal show={showCustomFabricModal} onClose={()=>setShowCustomFabricModal(false)} onAdd={(fab)=>setGeneralInfo(prev=>({...prev, customFabrics: [...(prev.customFabrics||[]), fab]}))} />
 
       <style>{`
         @media print {
@@ -1155,23 +1372,36 @@ const App = () => {
 
         <div className="space-y-10">
           {items.map((item, index) => {
-            const styleImg = item.styleMain && appDB.styleImages?.[item.styleMain];
+            const sMain1 = item.styleMain1 || item.styleMain || '';
+            const sMain2 = item.styleMain2 || '';
+            const styleImg1 = sMain1 && appDB.styleImages?.[sMain1];
+            const styleImg2 = sMain2 && appDB.styleImages?.[sMain2];
+            
+            const getFabImg = (fab) => {
+              if(!fab) return null;
+              if(fab.mainType === 'ผ้านอกระบบ (เฉพาะงานนี้)') {
+                return (generalInfo.customFabrics || []).find(f => f.subType === fab.subType && f.name === fab.name && f.color === fab.color)?.image;
+              }
+              return appDB.curtainTypes[fab.mainType]?.[fab.subType]?.[fab.name]?.[fab.color];
+            };
+
             let imgMain = null; let txtMain = ''; let colMain = '';
             let imgSheer = null; let txtSheer = ''; let colSheer = '';
             
             if(item.areas.length > 0) {
                const allFabs = item.areas.flatMap(a => a.fabrics);
-               const mainFab = allFabs.find(f => f.subType?.includes('ทึบ') || f.subType?.toLowerCase().includes('blackout')) || allFabs[0];
-               if(mainFab) {
-                 imgMain = mainFab.mainType && mainFab.subType && mainFab.name && mainFab.color ? appDB.curtainTypes[mainFab.mainType]?.[mainFab.subType]?.[mainFab.name]?.[mainFab.color] : null;
-                 txtMain = mainFab.subType || 'ผ้าม่าน 1';
-                 colMain = mainFab.name || mainFab.color ? `${mainFab.name || ''} / ${mainFab.color || ''}`.trim() : '';
+               const fab1 = allFabs[0];
+               const fab2 = allFabs[1];
+
+               if(fab1) {
+                 imgMain = getFabImg(fab1);
+                 txtMain = fab1.subType || 'ม่าน 1';
+                 colMain = `${fab1.name || ''} ${fab1.name && fab1.color ? '/' : ''} ${fab1.color || ''}`.trim();
                }
-               const sheerFab = allFabs.find(f => f.subType?.includes('โปร่ง') || f.subType?.toLowerCase().includes('sheer')) || (allFabs.length > 1 ? allFabs[1] : null);
-               if(sheerFab && sheerFab !== mainFab) {
-                 imgSheer = sheerFab.mainType && sheerFab.subType && sheerFab.name && sheerFab.color ? appDB.curtainTypes[sheerFab.mainType]?.[sheerFab.subType]?.[sheerFab.name]?.[sheerFab.color] : null;
-                 txtSheer = sheerFab.subType || 'ผ้าม่าน 2';
-                 colSheer = sheerFab.name || sheerFab.color ? `${sheerFab.name || ''} / ${sheerFab.color || ''}`.trim() : '';
+               if(fab2 && item.layers === 2) {
+                 imgSheer = getFabImg(fab2);
+                 txtSheer = fab2.subType || 'ม่าน 2';
+                 colSheer = `${fab2.name || ''} ${fab2.name && fab2.color ? '/' : ''} ${fab2.color || ''}`.trim();
                }
             }
 
@@ -1193,31 +1423,35 @@ const App = () => {
                       <div className="grid grid-cols-4 gap-2 h-full">
                         <div className="flex flex-col items-center bg-white border border-gray-200 p-2 rounded shadow-sm print-border-none h-full justify-between overflow-hidden">
                           <span className="text-[11px] font-bold text-gray-700 truncate w-full text-center mb-1.5 shrink-0">รูปแบบม่าน</span>
-                          <div className="flex-1 w-full bg-gray-50 border border-gray-100 flex items-center justify-center rounded overflow-hidden p-0">
-                            {styleImg ? <img src={styleImg} className="w-full h-full object-cover" /> : <img src={SVGS.style_default} className="max-w-[50px] max-h-[50px] opacity-50" />}
+                          <div className="flex-1 w-full bg-gray-50 border border-gray-100 flex items-center justify-center rounded overflow-hidden p-0 relative">
+                            {styleImg1 && <img src={styleImg1} className={`h-full object-cover ${item.layers === 2 && styleImg2 ? 'w-1/2' : 'w-full'}`} />}
+                            {item.layers === 2 && styleImg2 && <img src={styleImg2} className={`h-full object-cover border-l border-gray-200 ${styleImg1 ? 'w-1/2' : 'w-full'}`} />}
+                            {!styleImg1 && (!styleImg2 || item.layers === 1) && <img src={SVGS.style_default} className="max-w-[50px] max-h-[50px] opacity-50" />}
                           </div>
-                          <span className="text-xs text-blue-800 print:text-black truncate w-full text-center mt-1.5 font-bold shrink-0" title={item.styleMain}>{item.styleMain || '-'}</span>
+                          <span className="text-[11px] text-blue-800 print:text-black truncate w-full text-center mt-1.5 font-bold shrink-0">
+                            {sMain1 || '-'} {item.layers === 2 ? ` / ${sMain2 || '-'}` : ''}
+                          </span>
                         </div>
                         <div className="flex flex-col items-center bg-white border border-gray-200 p-2 rounded shadow-sm print-border-none h-full justify-between overflow-hidden">
-                          <span className="text-[11px] font-bold text-gray-700 truncate w-full text-center mb-1.5 shrink-0">{txtMain || 'ม่านทึบ'}</span>
+                          <span className="text-[11px] font-bold text-gray-700 truncate w-full text-center mb-1.5 shrink-0">{txtMain || 'ชั้นที่ 1'}</span>
                           <div className="flex-1 w-full border border-gray-100 flex items-center justify-center rounded overflow-hidden bg-gray-50 p-0">
                             {imgMain ? <img src={imgMain} className="w-full h-full object-cover" /> : <span className="text-[10px] text-gray-400">ไม่มีรูป</span>}
                           </div>
-                          <span className="text-xs text-gray-700 truncate w-full text-center mt-1.5 font-bold shrink-0" title={colMain}>{colMain || '-'}</span>
+                          <span className="text-[10px] text-gray-700 truncate w-full text-center mt-1.5 font-bold shrink-0" title={colMain}>{colMain || '-'}</span>
                         </div>
-                        <div className="flex flex-col items-center bg-white border border-gray-200 p-2 rounded shadow-sm print-border-none h-full justify-between overflow-hidden">
-                          <span className="text-[11px] font-bold text-gray-700 truncate w-full text-center mb-1.5 shrink-0">{txtSheer || 'ม่านโปร่ง'}</span>
+                        <div className={`flex flex-col items-center bg-white border border-gray-200 p-2 rounded shadow-sm print-border-none h-full justify-between overflow-hidden ${item.layers === 1 ? 'opacity-30' : ''}`}>
+                          <span className="text-[11px] font-bold text-gray-700 truncate w-full text-center mb-1.5 shrink-0">{item.layers === 2 ? (txtSheer || 'ชั้นที่ 2') : '-'}</span>
                           <div className="flex-1 w-full border border-gray-100 flex items-center justify-center rounded overflow-hidden bg-gray-50 p-0">
-                            {imgSheer ? <img src={imgSheer} className="w-full h-full object-cover" /> : <span className="text-[10px] text-gray-400">{txtSheer ? 'ไม่มีรูป' : '-'}</span>}
+                            {item.layers === 2 && imgSheer ? <img src={imgSheer} className="w-full h-full object-cover" /> : <span className="text-[10px] text-gray-400">-</span>}
                           </div>
-                          <span className="text-xs text-gray-700 truncate w-full text-center mt-1.5 font-bold shrink-0" title={colSheer}>{colSheer || '-'}</span>
+                          <span className="text-[10px] text-gray-700 truncate w-full text-center mt-1.5 font-bold shrink-0" title={colSheer}>{item.layers === 2 ? (colSheer || '-') : '-'}</span>
                         </div>
                         <div className="flex flex-col items-center bg-white border border-gray-200 p-2 rounded shadow-sm print-border-none h-full justify-between overflow-hidden">
                           <span className="text-[11px] font-bold text-gray-700 truncate w-full text-center mb-1.5 shrink-0">ระยะชายม่าน</span>
                           <div className="flex-1 w-full bg-gray-50 border border-gray-100 flex items-center justify-center rounded overflow-hidden p-0">
                             {marginImg ? <img src={marginImg} className="w-full h-full object-cover" /> : <span className="text-[10px] text-gray-400">-</span>}
                           </div>
-                          <span className="text-xs text-gray-600 truncate w-full text-center mt-1.5 font-bold shrink-0" title={item.marginBottom}>{item.marginBottom || '-'}</span>
+                          <span className="text-[10px] text-gray-600 truncate w-full text-center mt-1.5 font-bold shrink-0" title={item.marginBottom}>{item.marginBottom || '-'}</span>
                         </div>
                       </div>
                     </div>
@@ -1235,25 +1469,43 @@ const App = () => {
                       <div className="border border-gray-300 p-2 rounded bg-gray-50 print-border-none print-bg-transparent">
                         <div className="flex justify-between items-center mb-2 border-b border-gray-300 pb-1">
                           <span className="font-bold text-gray-800 text-xs">รายละเอียดวัสดุ/ผ้า</span>
+                          <button onClick={()=>setShowCustomFabricModal(true)} className="no-print bg-indigo-100 hover:bg-indigo-200 text-indigo-700 border border-indigo-200 px-2 py-1 rounded text-[10px] font-bold shadow-sm transition-colors flex items-center"><Plus size={12} className="mr-0.5"/> ผ้านอกระบบ</button>
                         </div>
                         {item.areas.length === 0 && <span className="text-gray-400 italic no-print text-xs">เพิ่มพื้นที่บนรูปหน้างานก่อน</span>}
                         {item.areas.map((area, aIdx) => (
                           <div key={area.id} className="mb-2 border-l-[3px] border-blue-500 pl-2">
                             <div className="font-bold text-blue-800 mb-1.5 flex justify-between items-center bg-blue-50 px-1.5 py-1 rounded print-bg-transparent text-[11px]">
-                              <span>พ.{aIdx + 1} (ก:{area.width||'-'} ส:{area.height||'-'})</span>
-                              <button onClick={()=>addFabricToArea(item.id, area.id)} className="text-blue-600 hover:text-blue-800 no-print flex items-center bg-white px-2 py-0.5 border border-blue-200 shadow-sm rounded text-[10px] transition-colors"><Plus size={12} className="mr-0.5"/> เพิ่มผ้า</button>
+                              <span>บานที่ {aIdx + 1} (ก:{area.width||'-'} ส:{area.height||'-'})</span>
+                              <div className="flex items-center gap-2">
+                                {area.fabrics.length < (item.layers || 2) && (
+                                  <button onClick={()=>addFabricToArea(item.id, area.id)} className="text-blue-600 hover:text-blue-800 no-print flex items-center bg-white px-2 py-0.5 border border-blue-200 shadow-sm rounded text-[10px] transition-colors"><Plus size={12} className="mr-0.5"/> เพิ่มผ้า</button>
+                                )}
+                              </div>
                             </div>
                             {area.fabrics.map((fab) => {
-                              const mainTypeOptions = Object.keys(appDB.curtainTypes || {});
-                              const subTypeOptions = fab.mainType ? Object.keys(appDB.curtainTypes[fab.mainType] || {}) : [];
-                              const nameOptions = fab.subType ? Object.keys(appDB.curtainTypes[fab.mainType][fab.subType] || {}) : [];
-                              const colorOptions = fab.name ? Object.keys(appDB.curtainTypes[fab.mainType][fab.subType][fab.name] || {}) : [];
+                              const isCustom = fab.mainType === 'ผ้านอกระบบ (เฉพาะงานนี้)';
+                              const mainTypeOptions = [...Object.keys(appDB.curtainTypes || {}), ...(generalInfo.customFabrics?.length > 0 ? ['ผ้านอกระบบ (เฉพาะงานนี้)'] : [])];
+                              
+                              let subTypeOptions = [];
+                              let nameOptions = [];
+                              let colorOptions = [];
+
+                              if(isCustom) {
+                                const cFabs = generalInfo.customFabrics || [];
+                                subTypeOptions = [...new Set(cFabs.map(f=>f.subType))].filter(Boolean);
+                                nameOptions = [...new Set(cFabs.filter(f=>f.subType === fab.subType).map(f=>f.name))].filter(Boolean);
+                                colorOptions = [...new Set(cFabs.filter(f=>f.subType === fab.subType && f.name === fab.name).map(f=>f.color))].filter(Boolean);
+                              } else {
+                                subTypeOptions = fab.mainType ? Object.keys(appDB.curtainTypes[fab.mainType] || {}) : [];
+                                nameOptions = fab.subType ? Object.keys(appDB.curtainTypes[fab.mainType]?.[fab.subType] || {}) : [];
+                                colorOptions = fab.name ? Object.keys(appDB.curtainTypes[fab.mainType]?.[fab.subType]?.[fab.name] || {}) : [];
+                              }
 
                               return (
                                 <div key={fab.id} className="flex flex-col gap-1.5 mb-1.5 bg-white p-1.5 border border-gray-200 rounded print-border-none relative pr-5 shadow-sm">
                                   <button onClick={()=>removeFabric(item.id, area.id, fab.id)} className="absolute top-1 right-1 text-red-500 hover:bg-red-50 rounded no-print transition-colors"><X size={14}/></button>
                                   <div className="flex gap-1.5">
-                                    <select value={fab.mainType} onChange={(e)=>updateFabric(item.id, area.id, fab.id, 'mainType', e.target.value)} className="w-1/2 border-b border-gray-300 outline-none text-[11px] print-border-none bg-transparent font-bold text-gray-700">
+                                    <select value={fab.mainType} onChange={(e)=>updateFabric(item.id, area.id, fab.id, 'mainType', e.target.value)} className={`w-1/2 border-b border-gray-300 outline-none text-[11px] print-border-none bg-transparent font-bold ${isCustom ? 'text-indigo-600' : 'text-gray-700'}`}>
                                       <option value="">-หมวดหมู่-</option>{mainTypeOptions.map(o=><option key={o} value={o}>{o}</option>)}
                                     </select>
                                     <select value={fab.subType} onChange={(e)=>updateFabric(item.id, area.id, fab.id, 'subType', e.target.value)} className="w-1/2 border-b border-gray-300 outline-none text-[11px] print-border-none bg-transparent font-bold text-indigo-700" disabled={!fab.mainType}>
@@ -1277,11 +1529,27 @@ const App = () => {
 
                       <div className="flex flex-col gap-2 py-1 flex-1 justify-center">
                         <div className="flex flex-col"><span className="font-bold text-gray-700 text-xs">รูปแบบการทำงาน</span>
-                          <div className="flex gap-1.5 items-center mt-0.5">
-                            <select value={item.styleMain} onChange={(e)=>handleItemChange(item.id, 'styleMain', e.target.value)} className="w-1/2 border-b border-gray-400 outline-none print-border-none bg-transparent text-blue-800 font-bold text-xs"><option value="">-รูปแบบ-</option>{(appDB.styles || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
-                            <span className="text-gray-400 font-bold">/</span>
-                            <select value={item.styleAction} onChange={(e)=>handleItemChange(item.id, 'styleAction', e.target.value)} className="w-1/2 border-b border-gray-400 outline-none print-border-none bg-transparent text-blue-800 font-bold text-xs"><option value="">-เปิดปิด-</option>{(appDB.actions || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
+                          <div className="flex items-center gap-4 mt-1 mb-2 bg-gray-100 p-1.5 rounded print-hidden">
+                            <span className="text-[11px] font-bold text-gray-600">จำนวนชั้นม่าน:</span>
+                            <label className="flex items-center gap-1 text-[11px] cursor-pointer font-bold"><input type="radio" checked={item.layers === 1} onChange={()=>handleLayerChange(item.id, 1)}/> 1 ชั้น</label>
+                            <label className="flex items-center gap-1 text-[11px] cursor-pointer font-bold"><input type="radio" checked={item.layers !== 1} onChange={()=>handleLayerChange(item.id, 2)}/> 2 ชั้น</label>
                           </div>
+                          
+                          <div className="flex gap-1.5 items-center mt-0.5">
+                            {item.layers !== 1 && <span className="text-[10px] font-bold text-gray-500 w-10 shrink-0">ชั้นที่ 1:</span>}
+                            <select value={sMain1} onChange={(e)=>handleItemChange(item.id, 'styleMain1', e.target.value)} className="w-1/2 border-b border-gray-400 outline-none print-border-none bg-transparent text-blue-800 font-bold text-xs"><option value="">-รูปแบบ-</option>{(appDB.styles || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
+                            <span className="text-gray-400 font-bold">/</span>
+                            <select value={item.styleAction1 || item.styleAction || ''} onChange={(e)=>handleItemChange(item.id, 'styleAction1', e.target.value)} className="w-1/2 border-b border-gray-400 outline-none print-border-none bg-transparent text-blue-800 font-bold text-xs"><option value="">-เปิดปิด-</option>{(appDB.actions || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
+                          </div>
+
+                          {item.layers !== 1 && (
+                            <div className="flex gap-1.5 items-center mt-1.5">
+                              <span className="text-[10px] font-bold text-gray-500 w-10 shrink-0">ชั้นที่ 2:</span>
+                              <select value={sMain2} onChange={(e)=>handleItemChange(item.id, 'styleMain2', e.target.value)} className="w-1/2 border-b border-gray-400 outline-none print-border-none bg-transparent text-blue-800 font-bold text-xs"><option value="">-รูปแบบ-</option>{(appDB.styles || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
+                              <span className="text-gray-400 font-bold">/</span>
+                              <select value={item.styleAction2 || ''} onChange={(e)=>handleItemChange(item.id, 'styleAction2', e.target.value)} className="w-1/2 border-b border-gray-400 outline-none print-border-none bg-transparent text-blue-800 font-bold text-xs"><option value="">-เปิดปิด-</option>{(appDB.actions || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
+                            </div>
+                          )}
                         </div>
 
                         <div className="flex flex-col"><span className="font-bold text-gray-700 text-xs">รางม่าน</span>

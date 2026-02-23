@@ -4,7 +4,7 @@ import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, doc, setDoc, getDoc, collection, getDocs, deleteDoc } from 'firebase/firestore';
 
-// Your web app's Firebase configuration
+// --- Firebase Initialization ---
 const firebaseConfig = {
   apiKey: "AIzaSyCRM9SXoU2IWM0olulbyfAF2oeeGyJsygY",
   authDomain: "curtain-app-3d38a.firebaseapp.com",
@@ -13,9 +13,10 @@ const firebaseConfig = {
   messagingSenderId: "58897117944",
   appId: "1:58897117944:web:3b7aa0417af8bc99a4010d"
 };
-
-// Initialize Firebase
 const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const appId = "curtain-app-3d38a"; // ใช้ Project ID เป็น appId อ้างอิงโฟลเดอร์ใน Database
 
 // --- SVGs for default fallback ---
 const SVGS = {
@@ -906,9 +907,19 @@ const App = () => {
   useEffect(() => {
     const initAuth = async () => {
       try {
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) await signInWithCustomToken(auth, __initial_auth_token);
-        else await signInAnonymously(auth);
-      } catch (err) { console.error("Auth Error:", err); }
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+          try {
+            await signInWithCustomToken(auth, __initial_auth_token);
+          } catch (tokenError) {
+            console.warn("Custom token failed, falling back to anonymous auth:", tokenError);
+            await signInAnonymously(auth);
+          }
+        } else {
+          await signInAnonymously(auth);
+        }
+      } catch (err) {
+        console.error("Auth Error:", err);
+      }
     };
     initAuth();
     const unsubscribe = onAuthStateChanged(auth, setFirebaseUser);
@@ -936,7 +947,8 @@ const App = () => {
     if (!firebaseUser || !appUser) return;
     const loadDB = async () => {
       try {
-        const snap = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'appDB'));
+        const settingsRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'appDB');
+        const snap = await getDoc(settingsRef);
         if (snap.exists()) setAppDB(snap.data());
       } catch(e) { console.error(e); }
     };

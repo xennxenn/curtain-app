@@ -261,10 +261,12 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
           if(cleanedDB.margins[k]) cleanedDB.margins[k] = cleanedDB.margins[k].map(s=>s.trim()).filter(Boolean);
        });
     }
-    setAppDB(cleanedDB);
-    localStorage.setItem('backupAppDB', JSON.stringify(cleanedDB)); 
-    await saveAppDB(cleanedDB); 
-    setShowDBSettings(false);
+    // ส่งข้อมูลบันทึกขึ้น Firebase เสมอ 
+    const success = await saveAppDB(cleanedDB); 
+    if (success) {
+      setAppDB(cleanedDB);
+      setShowDBSettings(false);
+    }
   };
 
   const handleImageUpload = (callback) => async (e) => {
@@ -365,7 +367,7 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
           <div className="w-3/4 p-4 overflow-y-auto bg-white">
             {activeTab === 'fabrics' && (
               <div className="flex flex-col gap-4">
-                <h3 className="font-bold text-lg text-blue-700 border-b pb-2">จัดการเนื้อผ้าและม่าน</h3>
+                <h3 className="font-bold text-lg text-blue-700 border-b pb-2">จัดการเนื้อผ้าและม่าน (ระบุ ชื่อ/สี พร้อมรูปตัวอย่าง)</h3>
                 <div>
                   <label className="block text-sm font-bold mb-2">1. หมวดหมู่หลัก</label>
                   <div className="flex gap-2">
@@ -565,7 +567,7 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
         </div>
         <div className="p-4 border-t bg-gray-50 flex justify-end gap-2">
            <button onClick={() => setShowDBSettings(false)} className="px-6 py-2 rounded font-bold text-gray-600 hover:bg-gray-200">ปิด</button>
-           <button onClick={handleSaveAndClose} className="bg-blue-600 text-white px-6 py-2 rounded font-bold hover:bg-blue-700 shadow">บันทึกฐานข้อมูล</button>
+           <button onClick={handleSaveAndClose} className="bg-blue-600 text-white px-6 py-2 rounded font-bold hover:bg-blue-700 shadow">บันทึกฐานข้อมูลออนไลน์</button>
         </div>
       </div>
     </div>
@@ -925,91 +927,69 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
                 const maskImgFallback = masks[action] || masks['ALL'] || Object.values(masks)[0];
                 let maskElements = [];
                 
-                const dist = (p1, p2) => Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
-                
                 if (maskImgFallback) {
                   if (maskType === 'height') {
-                    // --- แบบบิดภาพ (Perspective Warp) สำหรับม่านพับ มู่ลี่ ม่านม้วน ---
-                    let isQuad = area.points.length === 4;
-                    let TL, TR, BL, BR;
-                    if (isQuad) {
+                    let clipPoly = area.points.map(p => `${p.x},${p.y}`).join(' ');
+                    let topAngle = 0;
+                    let cx = minX + w/2;
+                    let cy = minY + h/2;
+
+                    if (area.points.length === 4) {
                       let sortedY = [...area.points].sort((a, b) => a.y - b.y);
                       let top2 = sortedY.slice(0, 2).sort((a, b) => a.x - b.x);
                       let bot2 = sortedY.slice(2, 4).sort((a, b) => a.x - b.x);
-                      TL = top2[0]; TR = top2[1]; BL = bot2[0]; BR = bot2[1];
+                      let TL = top2[0], TR = top2[1], BL = bot2[0], BR = bot2[1];
+
+                      let dropL = { x: TL.x + (BL.x - TL.x) * mPct, y: TL.y + (BL.y - TL.y) * mPct };
+                      let dropR = { x: TR.x + (BR.x - TR.x) * mPct, y: TR.y + (BR.y - TR.y) * mPct };
+
+                      clipPoly = `${TL.x},${TL.y} ${TR.x},${TR.y} ${dropR.x},${dropR.y} ${dropL.x},${dropL.y}`;
+
+                      topAngle = Math.atan2(TR.y - TL.y, TR.x - TL.x) * (180/Math.PI);
+                      cx = (TL.x + TR.x) / 2;
+                      cy = (TL.y + TR.y) / 2;
                     } else {
-                      TL = {x: minX, y: minY}; TR = {x: maxX, y: minY};
-                      BL = {x: minX, y: maxY}; BR = {x: maxX, y: maxY};
+                      let clipY = minY + h * mPct;
+                      clipPoly = `${minX},${minY} ${maxX},${minY} ${maxX},${clipY} ${minX},${clipY}`;
                     }
 
-                    // หาจุดตัดด้านล่างให้ไหลลงมาขนานกับเส้นกรอบซ้ายและขวา
-                    let dropL = { x: TL.x + (BL.x - TL.x) * mPct, y: TL.y + (BL.y - TL.y) * mPct };
-                    let dropR = { x: TR.x + (BR.x - TR.x) * mPct, y: TR.y + (BR.y - TR.y) * mPct };
-
-                    let clipPoly = `${TL.x},${TL.y} ${TR.x},${TR.y} ${dropR.x},${dropR.y} ${dropL.x},${dropL.y}`;
-                    let clipIdAct = `${clipId}-height-act`;
-
-                    // Matrix Transformation Data
-                    let W = Math.max(0.1, dist(TL, TR));
-                    let H = Math.max(0.1, dist(TL, dropL));
-
-                    let u_x = (TR.x - TL.x) / W;
-                    let u_y = (TR.y - TL.y) / W;
-                    let v_x = (dropL.x - TL.x) / H;
-                    let v_y = (dropL.y - TL.y) / H;
-
-                    let D = u_x * v_y - u_y * v_x;
-                    let imgW = W;
-                    let imgH = H;
-
-                    if (Math.abs(D) > 1e-6) {
-                      let dx = dropR.x - TL.x;
-                      let dy = dropR.y - TL.y;
-                      let x_R = (dx * v_y - dy * v_x) / D;
-                      let y_R = (u_x * dy - u_y * dx) / D;
-                      imgW = Math.max(W, x_R);
-                      imgH = Math.max(H, y_R);
-                    }
+                    const specificClipId = `${clipId}-height-act`;
 
                     maskElements.push(
-                      <React.Fragment key="T">
-                        <clipPath id={clipIdAct}><polygon points={clipPoly} /></clipPath>
-                        <g clipPath={`url(#${clipIdAct})`}>
-                          <image 
-                            href={maskImgFallback} 
-                            x="0" y="0" 
-                            width={imgW} height={imgH} 
-                            preserveAspectRatio="none" 
-                            opacity={maskOpacity}
-                            transform={area.points.length === 4 ? `matrix(${u_x} ${u_y} ${v_x} ${v_y} ${TL.x} ${TL.y})` : `translate(${TL.x}, ${TL.y})`}
-                          />
-                        </g>
-                      </React.Fragment>
+                      <g key="T">
+                        <clipPath id={specificClipId}>
+                          <polygon points={clipPoly} />
+                        </clipPath>
+                        <image 
+                          href={maskImgFallback} 
+                          x={minX - w*0.5} y={minY - h*0.5} 
+                          width={w * 2} height={h * 2} 
+                          preserveAspectRatio="none" 
+                          clipPath={`url(#${specificClipId})`} 
+                          opacity={maskOpacity}
+                          transform={area.points.length === 4 ? `rotate(${topAngle} ${cx} ${cy})` : undefined}
+                        />
+                      </g>
                     );
                   } else {
-                    // --- ผ้าม่านเดิม 100% ไม่บิดเบือน ---
                     if (action.includes('แยกกลาง')) {
                       const leftImg = masks['รวบซ้าย'] || maskImgFallback;
                       const rightImg = masks['รวบขวา'] || maskImgFallback;
                       maskElements.push(
-                        <g key="W" clipPath={`url(#${clipId})`}>
-                          <image href={leftImg} x={minX} y={minY} width={w * mPct} height={h} preserveAspectRatio="none" opacity={maskOpacity} />
-                          <image href={rightImg} x={maxX - (w * mPct)} y={minY} width={w * mPct} height={h} preserveAspectRatio="none" opacity={maskOpacity} />
+                        <g key="W">
+                          <image href={leftImg} x={minX} y={minY} width={w * mPct} height={h} preserveAspectRatio="none" clipPath={`url(#${clipId})`} opacity={maskOpacity} />
+                          <image href={rightImg} x={maxX - (w * mPct)} y={minY} width={w * mPct} height={h} preserveAspectRatio="none" clipPath={`url(#${clipId})`} opacity={maskOpacity} />
                         </g>
                       );
                     } else if (action.includes('ขวา')) {
                       const rightImg = masks['รวบขวา'] || masks[action] || maskImgFallback;
                       maskElements.push(
-                        <g key="R" clipPath={`url(#${clipId})`}>
-                          <image href={rightImg} x={maxX - (w * mPct)} y={minY} width={w * mPct} height={h} preserveAspectRatio="none" opacity={maskOpacity} />
-                        </g>
+                        <image key="R" href={rightImg} x={maxX - (w * mPct)} y={minY} width={w * mPct} height={h} preserveAspectRatio="none" clipPath={`url(#${clipId})`} opacity={maskOpacity} />
                       );
                     } else {
                       const leftImg = masks['รวบซ้าย'] || masks[action] || maskImgFallback;
                       maskElements.push(
-                        <g key="L" clipPath={`url(#${clipId})`}>
-                          <image href={leftImg} x={minX} y={minY} width={w * mPct} height={h} preserveAspectRatio="none" opacity={maskOpacity} />
-                        </g>
+                        <image key="L" href={leftImg} x={minX} y={minY} width={w * mPct} height={h} preserveAspectRatio="none" clipPath={`url(#${clipId})`} opacity={maskOpacity} />
                       );
                     }
                   }
@@ -1294,7 +1274,7 @@ const App = () => {
     if (firebaseUser && appUser && view === 'dashboard') loadProjectsList();
   }, [firebaseUser, appUser, view]);
 
-  // Real-time DB Sync Fix
+  // Real-time DB Sync Fix - 100% Online Only
   useEffect(() => {
     if (!firebaseUser || !appUser) return;
     const settingsRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'appDB');
@@ -1302,16 +1282,13 @@ const App = () => {
       if (snap.exists() && snap.data() && Object.keys(snap.data()).length > 0) {
         const mergedDB = { ...DEFAULT_DB, ...snap.data() };
         setAppDB(mergedDB);
-        localStorage.setItem('backupAppDB', JSON.stringify(mergedDB));
       } else {
-        const localBackup = localStorage.getItem('backupAppDB');
-        if(localBackup) setAppDB(JSON.parse(localBackup));
-        else setAppDB(DEFAULT_DB);
+        setAppDB(DEFAULT_DB);
+        // Initialize online db if it doesn't exist
+        setDoc(settingsRef, DEFAULT_DB).catch(console.error);
       }
     }, (err) => {
-      const localBackup = localStorage.getItem('backupAppDB');
-      if(localBackup) setAppDB(JSON.parse(localBackup));
-      else setAppDB(DEFAULT_DB);
+      console.error("DB Sync Error:", err);
     });
     return () => unsub();
   }, [firebaseUser, appUser]);

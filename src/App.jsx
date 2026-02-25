@@ -225,6 +225,8 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
   const [type, setType] = useState('');
   const [localText, setLocalText] = useState({});
   const [isUploading, setIsUploading] = useState(false);
+  const [isUploadingBulk, setIsUploadingBulk] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState('');
   const [searchFabric, setSearchFabric] = useState('');
 
   useEffect(() => {
@@ -282,6 +284,48 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
       }
       setIsUploading(false);
     }
+  };
+
+  const handleBulkUpload = async (e) => {
+    const files = Array.from(e.target.files).filter(f => f.type.startsWith('image/') || f.name.toLowerCase().match(/\.(heic|heif)$/i));
+    if (files.length === 0) return;
+    if (!type) {
+      setDialog({ type: 'alert', message: "กรุณาเลือกประเภทม่านก่อนทำการอัปโหลดแบบกลุ่ม" });
+      return;
+    }
+
+    setIsUploadingBulk(true);
+    let successCount = 0;
+    let newDB = JSON.parse(JSON.stringify(appDB));
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      setBulkProgress(`(${i + 1}/${files.length})`);
+
+      // webkitRelativePath format: "FolderName/ImageName.jpg"
+      const pathParts = file.webkitRelativePath.split('/');
+      if (pathParts.length < 2) continue; // Skip if not in a folder
+
+      const folderName = pathParts[pathParts.length - 2].toUpperCase();
+      const fileNameWithoutExt = pathParts[pathParts.length - 1].replace(/\.[^/.]+$/, "").toUpperCase();
+
+      const compressedImg = await processImageFile(file, 400, 0.7, null); 
+      if (compressedImg) {
+        const url = await uploadImageToImgBB(compressedImg);
+        if (url) {
+          if (!newDB.curtainTypes[cat][type]) newDB.curtainTypes[cat][type] = {};
+          if (!newDB.curtainTypes[cat][type][folderName]) newDB.curtainTypes[cat][type][folderName] = {};
+          newDB.curtainTypes[cat][type][folderName][fileNameWithoutExt] = url;
+          successCount++;
+        }
+      }
+    }
+
+    setAppDB(newDB);
+    setIsUploadingBulk(false);
+    setBulkProgress('');
+    e.target.value = ''; // Reset input
+    setDialog({ type: 'alert', message: `อัปโหลดแบบกลุ่มสำเร็จ ${successCount} รายการ` });
   };
 
   const addFabricType = (newType) => {
@@ -386,7 +430,7 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
           <div className="w-full md:w-3/4 p-4 overflow-y-auto bg-white">
             {activeTab === 'fabrics' && (
               <div className="flex flex-col gap-4">
-                <h3 className="font-bold text-lg text-blue-700 border-b pb-2">จัดการเนื้อผ้าและม่าน (ระบุ ชื่อ/สี พร้อมรูปตัวอย่าง)</h3>
+                <h3 className="font-bold text-lg text-blue-700 border-b pb-2">จัดการเนื้อผ้าและม่าน</h3>
                 <div>
                   <label className="block text-sm font-bold mb-2">1. หมวดหมู่หลัก</label>
                   <div className="flex gap-2 flex-wrap">
@@ -445,7 +489,7 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
                     </div>
 
                     <div className="bg-white p-3 border rounded shadow-sm flex flex-col gap-2 mt-2">
-                       <span className="text-sm font-bold text-indigo-700">เพิ่มรายการผ้าใหม่</span>
+                       <span className="text-sm font-bold text-indigo-700">เพิ่มรายการผ้าใหม่ (ทีละรายการ)</span>
                        <div className="flex flex-col md:flex-row gap-2 md:items-center">
                           <input type="text" id="addFabName" placeholder="ชื่อรุ่น (เช่น LONERO)" className="border px-2 py-1.5 rounded text-sm w-full md:w-1/3 focus:outline-indigo-500"/>
                           <input type="text" id="addFabColor" placeholder="ชื่อสี (เช่น GREY)" className="border px-2 py-1.5 rounded text-sm w-full md:w-1/3 focus:outline-indigo-500" onInput={(e) => e.target.value = e.target.value.toUpperCase()}/>
@@ -464,6 +508,17 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
                        </div>
                        <button onClick={addFabricItem} disabled={isUploading} className={`bg-indigo-600 text-white py-1.5 rounded text-sm font-bold mt-1 ${isUploading ? 'opacity-50' : 'hover:bg-indigo-700'}`}>บันทึกรายการผ้า</button>
                     </div>
+
+                    {/* --- BULK UPLOAD FOLDER SECTION --- */}
+                    <div className="bg-indigo-50 p-3 border border-indigo-200 rounded shadow-sm flex flex-col gap-2 mt-2">
+                       <span className="text-sm font-bold text-indigo-800">เพิ่มรายการแบบกลุ่ม (นำเข้าทั้งโฟลเดอร์)</span>
+                       <p className="text-[11px] text-gray-600 leading-tight">ระบบจะใช้ <b>"ชื่อโฟลเดอร์"</b> เป็นชื่อรุ่น และ <b>"ชื่อไฟล์ภาพ"</b> เป็นชื่อสี (แปลงเป็นพิมพ์ใหญ่อัตโนมัติ)</p>
+                       <label className={`bg-white border border-gray-300 text-gray-700 px-3 py-2 rounded text-sm flex justify-center items-center font-bold shadow-sm ${isUploadingBulk ? 'opacity-50 cursor-wait' : 'cursor-pointer hover:bg-gray-50'}`}>
+                         {isUploadingBulk ? `กำลังอัปโหลด... ${bulkProgress}` : <><Upload size={14} className="mr-1"/> เลือกโฟลเดอร์ที่มีรูปผ้า</>}
+                         <input type="file" webkitdirectory="true" directory="true" multiple accept={ACCEPTED_IMAGE_FORMATS} className="hidden" disabled={isUploadingBulk} onChange={handleBulkUpload}/>
+                       </label>
+                    </div>
+
                   </div>
                 )}
               </div>
@@ -1910,9 +1965,9 @@ const App = () => {
                                   {formatBaanLabel(grp.labelNums, item.areas.length)} : <span className="font-normal">ก:{grp.w} ส:{grp.h}</span>
                                 </span>
                                 <div className="text-[12px] leading-snug">
-                                   <span className="text-gray-800 block"><span className="font-bold">ชั้นที่ 1</span> {grp.s1} {grp.a1 !== '-' ? `/ ${grp.a1}` : ''}</span>
+                                   <span className="text-gray-800 block"><span className="font-bold">ชั้นที่ 1:</span> {grp.s1} {grp.a1 !== '-' ? `/ ${grp.a1}` : ''}</span>
                                    {item.layers === 2 && (
-                                      <span className="text-gray-800 block mt-0.5"><span className="font-bold">ชั้นที่ 2</span> {grp.s2} {grp.a2 !== '-' ? `/ ${grp.a2}` : ''}</span>
+                                      <span className="text-gray-800 block mt-0.5"><span className="font-bold">ชั้นที่ 2:</span> {grp.s2} {grp.a2 !== '-' ? `/ ${grp.a2}` : ''}</span>
                                    )}
                                 </div>
                              </div>

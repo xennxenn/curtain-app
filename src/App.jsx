@@ -49,6 +49,26 @@ const DEFAULT_ACCOUNTS = [
   { id: '2', username: 'T65099', password: '65099', role: 'user', name: 'พนักงานทดสอบ' }
 ];
 
+// --- Utility: Alert/Confirm Dialog System ---
+const AlertDialog = ({ dialog, onClose }) => {
+  if (!dialog) return null;
+  return (
+    <div className="fixed inset-0 bg-black/60 z-[9999999] flex items-center justify-center p-4">
+      <div className="bg-white rounded-lg p-6 max-w-sm w-full shadow-2xl flex flex-col items-center text-center">
+        <p className="text-gray-800 mb-6 font-bold text-sm">{dialog.message}</p>
+        <div className="flex gap-4 w-full justify-center">
+          {dialog.type === 'confirm' && (
+            <button onClick={onClose} className="px-6 py-2 bg-gray-200 hover:bg-gray-300 rounded font-bold text-gray-700 text-sm">ยกเลิก</button>
+          )}
+          <button onClick={() => { if(dialog.onConfirm) dialog.onConfirm(); onClose(); }} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded font-bold text-sm shadow">
+            {dialog.type === 'confirm' ? 'ตกลง' : 'รับทราบ'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // --- Utility: HEIC/HEIF Image Support & Compression ---
 const loadHeic2Any = async () => {
   if (window.heic2any) return window.heic2any;
@@ -61,7 +81,7 @@ const loadHeic2Any = async () => {
   });
 };
 
-const processImageFile = async (file, maxWidth = 1200, quality = 0.8) => {
+const processImageFile = async (file, maxWidth = 1200, quality = 0.8, setDialog) => {
   let processFile = file;
   
   if (file.name.toLowerCase().match(/\.(heic|heif)$/i)) {
@@ -72,7 +92,7 @@ const processImageFile = async (file, maxWidth = 1200, quality = 0.8) => {
       processFile = new File(blobArray, file.name.replace(/\.(heic|heif)$/i, '.jpg'), { type: "image/jpeg" });
     } catch (err) {
       console.error("HEIC conversion failed", err);
-      alert("ไม่สามารถแปลงไฟล์ HEIC/HEIF ได้ กรุณาใช้ไฟล์ JPG/PNG");
+      setDialog({ type: 'alert', message: "ไม่สามารถแปลงไฟล์ HEIC/HEIF ได้ กรุณาใช้ไฟล์ JPG/PNG" });
       return null;
     }
   }
@@ -92,7 +112,7 @@ const processImageFile = async (file, maxWidth = 1200, quality = 0.8) => {
         resolve(canvas.toDataURL('image/webp', quality)); 
       };
       img.onerror = () => {
-        alert("ไฟล์รูปภาพไม่รองรับ หรือมีปัญหา");
+        setDialog({ type: 'alert', message: "ไฟล์รูปภาพไม่รองรับ หรือมีปัญหา" });
         resolve(null);
       };
       img.src = e.target.result;
@@ -103,7 +123,7 @@ const processImageFile = async (file, maxWidth = 1200, quality = 0.8) => {
 };
 
 // --- Component: Custom Project Fabric Modal ---
-const CustomFabricModal = ({ show, onClose, onAdd }) => {
+const CustomFabricModal = ({ show, onClose, onAdd, setDialog }) => {
   if (!show) return null;
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -111,16 +131,18 @@ const CustomFabricModal = ({ show, onClose, onAdd }) => {
     const subType = document.getElementById('customFabSubType').value;
     const name = document.getElementById('customFabName').value;
     const color = document.getElementById('customFabColor').value;
-    if(!subType || !name || !color || !f) return alert('กรุณากรอกข้อมูลและเลือกรูปภาพให้ครบถ้วน');
+    if(!subType || !name || !color || !f) {
+      return setDialog({ type: 'alert', message: 'กรุณากรอกข้อมูลและเลือกรูปภาพให้ครบถ้วน' });
+    }
     
-    const compressed = await processImageFile(f, 600, 0.8);
+    const compressed = await processImageFile(f, 600, 0.8, setDialog);
     if (!compressed) return; 
     onAdd({ id: Date.now().toString(), mainType: 'ผ้านอกระบบ (เฉพาะงานนี้)', subType, name, color, image: compressed });
     onClose();
   };
 
   return (
-    <div className="fixed inset-0 bg-black/60 z-[1000000] flex items-center justify-center p-4">
+    <div className="fixed inset-0 bg-black/60 z-[100000] flex items-center justify-center p-4">
       <div className="bg-white rounded-lg shadow-xl w-full max-w-md flex flex-col overflow-hidden">
         <div className="flex justify-between items-center p-4 border-b bg-indigo-50">
           <h2 className="text-lg font-bold flex items-center text-indigo-800"><ImagePlus className="mr-2"/> เพิ่มผ้านอกระบบ (เฉพาะงานนี้)</h2>
@@ -145,7 +167,7 @@ const CustomFabricModal = ({ show, onClose, onAdd }) => {
 };
 
 // --- Component: Database Settings Modal ---
-const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, saveData }) => {
+const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, saveAppDB, setDialog }) => {
   if (!showDBSettings) return null;
   const [activeTab, setActiveTab] = useState('fabrics');
   const [cat, setCat] = useState('ผ้าม่าน');
@@ -177,7 +199,7 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
     }
   };
 
-  const handleSaveAndClose = () => {
+  const handleSaveAndClose = async () => {
     const cleanedDB = JSON.parse(JSON.stringify(appDB));
     ['styles', 'actions', 'tracks', 'brackets', 'accessories', 'hangStyles'].forEach(k => {
        if(cleanedDB[k]) cleanedDB[k] = cleanedDB[k].map(s=>s.trim()).filter(Boolean);
@@ -189,14 +211,14 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
     }
     setAppDB(cleanedDB);
     localStorage.setItem('backupAppDB', JSON.stringify(cleanedDB)); // Backup locally
-    saveData(cleanedDB);
+    await saveAppDB(cleanedDB); // Save directly to Firebase AppDB path
     setShowDBSettings(false);
   };
 
   const handleImageUpload = (callback) => async (e) => {
     const file = e.target.files[0];
     if (file) {
-      const compressedDataUrl = await processImageFile(file, 800, 0.8);
+      const compressedDataUrl = await processImageFile(file, 800, 0.8, setDialog);
       if(compressedDataUrl) callback(compressedDataUrl);
     }
   };
@@ -222,12 +244,16 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
   };
 
   const deleteFabricType = (t) => {
-    if(window.confirm(`ต้องการลบหมวดหมู่ "${t}" ใช่หรือไม่? ข้อมูลผ้าด้านในจะถูกลบทั้งหมด`)) {
-      const newDB = JSON.parse(JSON.stringify(appDB));
-      delete newDB.curtainTypes[cat][t];
-      setAppDB(newDB);
-      if(type === t) setType('');
-    }
+    setDialog({
+      type: 'confirm',
+      message: `ต้องการลบหมวดหมู่ "${t}" ใช่หรือไม่? ข้อมูลผ้าด้านในจะถูกลบทั้งหมด`,
+      onConfirm: () => {
+        const newDB = JSON.parse(JSON.stringify(appDB));
+        delete newDB.curtainTypes[cat][t];
+        setAppDB(newDB);
+        if(type === t) setType('');
+      }
+    });
   };
 
   const addFabricItem = async () => {
@@ -235,7 +261,7 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
     const c = document.getElementById('addFabColor').value;
     const f = document.getElementById('addFabImg').files[0];
     if(n && c && f) {
-      const compressedImg = await processImageFile(f, 600, 0.8);
+      const compressedImg = await processImageFile(f, 600, 0.8, setDialog);
       if(!compressedImg) return;
       
       const newDB = JSON.parse(JSON.stringify(appDB));
@@ -246,7 +272,9 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
       document.getElementById('addFabName').value=''; 
       document.getElementById('addFabColor').value=''; 
       document.getElementById('addFabImg').value='';
-    } else { alert("กรุณาใส่ข้อมูลและเลือกรูปภาพให้ครบ"); }
+    } else { 
+      setDialog({ type: 'alert', message: "กรุณาใส่ข้อมูลและเลือกรูปภาพให้ครบ" }); 
+    }
   };
 
   const deleteFabricItem = (typeName, itemName, itemColor) => {
@@ -384,7 +412,7 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
                               newDB.masks[st][ac] = base64;
                               setAppDB(newDB);
                             } else {
-                              alert("กรุณาเลือกรูปแบบและลักษณะการเปิดปิดก่อนอัปโหลด");
+                              setDialog({ type: 'alert', message: "กรุณาเลือกรูปแบบและลักษณะการเปิดปิดก่อนอัปโหลด" });
                             }
                           })}/>
                         </label>
@@ -468,7 +496,7 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
 };
 
 // --- Component: User Management Modal ---
-const UserManagementModal = ({ show, onClose }) => {
+const UserManagementModal = ({ show, onClose, setDialog }) => {
   const [accounts, setAccounts] = useState([]);
   const [newN, setNewN] = useState('');
   const [newU, setNewU] = useState('');
@@ -491,15 +519,15 @@ const UserManagementModal = ({ show, onClose }) => {
   };
 
   const handleAdd = () => {
-    if(!newN || !newU || !newP) return alert('กรุณากรอก ชื่อ, Username และ Password ให้ครบถ้วน');
-    if(accounts.find(a => a.username === newU)) return alert('Username นี้มีอยู่แล้ว');
+    if(!newN || !newU || !newP) return setDialog({ type: 'alert', message: 'กรุณากรอก ชื่อ, Username และ Password ให้ครบถ้วน' });
+    if(accounts.find(a => a.username === newU)) return setDialog({ type: 'alert', message: 'Username นี้มีอยู่แล้ว' });
     const newAcc = [...accounts, { id: Date.now().toString(), username: newU, password: newP, role: newR, name: newN }];
     saveAcc(newAcc);
     setNewN(''); setNewU(''); setNewP('');
   };
 
   const handleDel = (id) => {
-    if(accounts.find(a=>a.id===id).username === 'Admin') return alert('ลบบัญชี Admin หลักไม่ได้');
+    if(accounts.find(a=>a.id===id).username === 'Admin') return setDialog({ type: 'alert', message: 'ลบบัญชี Admin หลักไม่ได้' });
     saveAcc(accounts.filter(a => a.id !== id));
   };
 
@@ -594,8 +622,9 @@ const LoginScreen = ({ onLogin }) => {
 };
 
 // --- Component: Interactive Image Area ---
-const ImageAreaEditor = ({ item, appDB, handleItemChange }) => {
+const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 'editor' }) => {
   const [activeAreaId, setActiveAreaId] = useState(null);
+  const [isDrawing, setIsDrawing] = useState(false);
   const [showControls, setShowControls] = useState(true);
   const [mode, setMode] = useState('draw'); 
   const [zoom, setZoom] = useState(1);
@@ -683,12 +712,16 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange }) => {
     };
     handleItemChange(item.id, 'areas', [...item.areas, newArea]);
     setActiveAreaId(newAreaId);
+    setIsDrawing(true);
     setMode('draw');
   };
 
   const handleRemoveArea = (areaId) => {
     handleItemChange(item.id, 'areas', item.areas.filter(a => a.id !== areaId));
-    if (activeAreaId === areaId) setActiveAreaId(null);
+    if (activeAreaId === areaId) {
+      setActiveAreaId(null);
+      setIsDrawing(false);
+    }
   };
 
   const handleUpdateArea = (areaId, field, value) => {
@@ -712,7 +745,7 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange }) => {
       const trueY = (e.clientY - rect.top - pan.y) / zoom;
       const xPct = Math.max(0, Math.min(100, (trueX / rect.width) * 100));
       const yPct = Math.max(0, Math.min(100, (trueY / rect.height) * 100));
-      if (mode === 'draw' && activeAreaId && !pointDrag && !isPanning) setCursorPos({ x: xPct, y: yPct });
+      if (mode === 'draw' && activeAreaId && isDrawing && !pointDrag && !isPanning) setCursorPos({ x: xPct, y: yPct });
       else setCursorPos(null);
     }
   };
@@ -721,7 +754,7 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange }) => {
   const handleMouseLeave = () => { setIsPanning(false); setCursorPos(null); };
 
   const handleContentClick = (e) => {
-    if (mode !== 'draw' || !activeAreaId || pointDrag || isPanning || draggingPanel) return;
+    if (mode !== 'draw' || !activeAreaId || !isDrawing || pointDrag || isPanning || draggingPanel) return;
     const rect = containerRef.current.getBoundingClientRect();
     const trueX = (e.clientX - rect.left - pan.x) / zoom;
     const trueY = (e.clientY - rect.top - pan.y) / zoom;
@@ -735,17 +768,24 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange }) => {
     }
     handleItemChange(item.id, 'areas', item.areas.map(a => a.id === activeAreaId ? { ...a, points: [...a.points, { x: xPct, y: yPct }] } : a));
   };
-  
-  const handleDoubleClick = (e) => {
-    if (mode === 'draw') { e.stopPropagation(); setActiveAreaId(null); setCursorPos(null); }
-  };
 
-  const handlePointMouseDown = (e, areaId, pIdx) => { e.stopPropagation(); setActiveAreaId(areaId); setPointDrag({ areaId, pIdx }); };
+  const handlePointMouseDown = (e, areaId, pIdx) => { 
+    e.stopPropagation(); 
+    setActiveAreaId(areaId); 
+    
+    if (isDrawing && pIdx === 0 && item.areas.find(a => a.id === areaId).points.length > 2) {
+      setIsDrawing(false);
+      setCursorPos(null);
+      return;
+    }
+
+    setPointDrag({ areaId, pIdx }); 
+  };
 
   const handleImageUpload = async (e) => {
     const file = e.target.files[0];
     if (file) {
-      const compressedDataUrl = await processImageFile(file, 1200, 0.8);
+      const compressedDataUrl = await processImageFile(file, 1200, 0.8, setDialog);
       if(compressedDataUrl) handleItemChange(item.id, 'image', compressedDataUrl);
     }
   };
@@ -756,11 +796,11 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange }) => {
     <div ref={wrapperRef} className="flex flex-col w-full h-full relative border-b border-gray-300 bg-white">
       <div 
         ref={containerRef}
-        className={`relative w-full flex-grow overflow-hidden bg-gray-100 ${mode === 'pan' ? (isPanning ? 'cursor-grabbing' : 'cursor-grab') : (activeAreaId ? 'cursor-crosshair' : 'cursor-default')}`}
-        onWheel={handleWheel} onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} onMouseLeave={handleMouseLeave} onClick={handleContentClick} onDoubleClick={handleDoubleClick}
+        className={`relative w-full flex-grow overflow-hidden bg-gray-100 ${mode === 'pan' ? (isPanning ? 'cursor-grabbing' : 'cursor-grab') : (activeAreaId && isDrawing ? 'cursor-crosshair' : 'cursor-default')}`}
+        onWheel={handleWheel} onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} onMouseLeave={handleMouseLeave} onClick={handleContentClick}
       >
         {item.image ? (
-          <div style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: '0 0' }} className="w-full h-full relative transition-transform duration-75 ease-out">
+          <div style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: '0 0' }} className="w-full h-full relative transition-transform duration-75 ease-out print:transform-none">
             <img src={item.image} alt="Window view" className="w-full h-full object-cover pointer-events-none" />
             
             <label className="absolute top-2 left-2 bg-white/90 border border-gray-300 text-gray-700 px-3 py-1.5 rounded shadow-sm hover:bg-white no-print z-40 cursor-pointer flex items-center text-xs font-bold transition-colors" title="เปลี่ยนเฉพาะรูปพื้นหลัง">
@@ -770,11 +810,14 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange }) => {
 
             <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none">
               <defs>
-                {item.areas.map(area => (
-                  <clipPath key={`clip-${area.id}`} id={`clip-${area.id}`}>
-                    <polygon points={area.points.map(p => `${p.x},${p.y}`).join(' ')} />
-                  </clipPath>
-                ))}
+                {item.areas.map(area => {
+                  const clipId = `clip-${idPrefix}-${item.id}-${area.id}`;
+                  return (
+                    <clipPath key={clipId} id={clipId}>
+                      <polygon points={area.points.map(p => `${p.x},${p.y}`).join(' ')} />
+                    </clipPath>
+                  )
+                })}
               </defs>
 
               {item.areas.map(area => {
@@ -785,6 +828,7 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange }) => {
                 const maxY = Math.max(...area.points.map(p=>p.y));
                 const w = maxX - minX;
                 const h = maxY - minY;
+                const clipId = `clip-${idPrefix}-${item.id}-${area.id}`;
                 
                 const styleMain1 = item.styleMain1 || item.styleMain || '';
                 const autoMaskType = styleMain1.match(/ม้วน|พับ|มู่ลี่/) ? 'height' : 'width';
@@ -797,38 +841,88 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange }) => {
                 const maskImgFallback = masks[action] || masks['ALL'] || Object.values(masks)[0];
                 let maskElements = [];
                 
+                const dist = (p1, p2) => Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
+                
                 if (maskImgFallback) {
                   if (maskType === 'height') {
-                    let topAngle = 0;
-                    if (area.points.length >= 2) {
-                      let topPts = [...area.points].sort((a,b)=>a.y - b.y).slice(0,2).sort((a,b)=>a.x - b.x);
-                      if (topPts.length === 2 && topPts[1].x !== topPts[0].x) {
-                        topAngle = Math.atan2(topPts[1].y - topPts[0].y, topPts[1].x - topPts[0].x) * (180/Math.PI);
-                      }
+                    let isQuad = area.points.length === 4;
+                    let TL, TR, BL, BR;
+                    if (isQuad) {
+                      let sortedY = [...area.points].sort((a, b) => a.y - b.y);
+                      let top2 = sortedY.slice(0, 2).sort((a, b) => a.x - b.x);
+                      let bot2 = sortedY.slice(2, 4).sort((a, b) => a.x - b.x);
+                      TL = top2[0]; TR = top2[1]; BL = bot2[0]; BR = bot2[1];
+                    } else {
+                      TL = {x: minX, y: minY}; TR = {x: maxX, y: minY};
+                      BL = {x: minX, y: maxY}; BR = {x: maxX, y: maxY};
                     }
+
+                    let dropL = { x: TL.x + (BL.x - TL.x) * mPct, y: TL.y + (BL.y - TL.y) * mPct };
+                    let dropR = { x: TR.x + (BR.x - TR.x) * mPct, y: TR.y + (BR.y - TR.y) * mPct };
+
+                    let clipPoly = `${TL.x},${TL.y} ${TR.x},${TR.y} ${dropR.x},${dropR.y} ${dropL.x},${dropL.y}`;
+                    let clipIdAct = `${clipId}-height-act`;
+
+                    let W = Math.max(0.1, dist(TL, TR));
+                    let H = Math.max(0.1, dist(TL, dropL));
+
+                    let u_x = (TR.x - TL.x) / W;
+                    let u_y = (TR.y - TL.y) / W;
+                    let v_x = (dropL.x - TL.x) / H;
+                    let v_y = (dropL.y - TL.y) / H;
+
+                    let D = u_x * v_y - u_y * v_x;
+                    let imgW = W;
+                    let imgH = H;
+
+                    if (Math.abs(D) > 1e-6) {
+                      let dx = dropR.x - TL.x;
+                      let dy = dropR.y - TL.y;
+                      let x_R = (dx * v_y - dy * v_x) / D;
+                      let y_R = (u_x * dy - u_y * dx) / D;
+                      imgW = Math.max(W, x_R);
+                      imgH = Math.max(H, y_R);
+                    }
+
                     maskElements.push(
-                      <image 
-                        key="T" href={maskImgFallback} 
-                        x={minX - w*0.1} y={minY - h*0.1} 
-                        width={w * 1.2} height={(h * mPct) + (h * 0.1)} 
-                        preserveAspectRatio="none" 
-                        clipPath={`url(#clip-${area.id})`} 
-                        opacity={maskOpacity}
-                        transform={`rotate(${topAngle} ${minX + w/2} ${minY})`}
-                      />
+                      <React.Fragment key="T">
+                        <clipPath id={clipIdAct}><polygon points={clipPoly} /></clipPath>
+                        <g clipPath={`url(#${clipIdAct})`}>
+                          <image 
+                            href={maskImgFallback} 
+                            x="0" y="0" 
+                            width={imgW} height={imgH} 
+                            preserveAspectRatio="none" 
+                            opacity={maskOpacity}
+                            transform={`matrix(${u_x} ${u_y} ${v_x} ${v_y} ${TL.x} ${TL.y})`}
+                          />
+                        </g>
+                      </React.Fragment>
                     );
                   } else {
                     if (action.includes('แยกกลาง')) {
                       const leftImg = masks['รวบซ้าย'] || maskImgFallback;
                       const rightImg = masks['รวบขวา'] || maskImgFallback;
-                      maskElements.push(<image key="L" href={leftImg} x={minX} y={minY} width={w * mPct} height={h} preserveAspectRatio="none" clipPath={`url(#clip-${area.id})`} opacity={maskOpacity} />);
-                      maskElements.push(<image key="R" href={rightImg} x={maxX - (w * mPct)} y={minY} width={w * mPct} height={h} preserveAspectRatio="none" clipPath={`url(#clip-${area.id})`} opacity={maskOpacity} />);
+                      maskElements.push(
+                        <g key="W" clipPath={`url(#${clipId})`}>
+                          <image href={leftImg} x={minX} y={minY} width={w * mPct} height={h} preserveAspectRatio="none" opacity={maskOpacity} />
+                          <image href={rightImg} x={maxX - (w * mPct)} y={minY} width={w * mPct} height={h} preserveAspectRatio="none" opacity={maskOpacity} />
+                        </g>
+                      );
                     } else if (action.includes('ขวา')) {
                       const rightImg = masks['รวบขวา'] || masks[action] || maskImgFallback;
-                      maskElements.push(<image key="R" href={rightImg} x={maxX - (w * mPct)} y={minY} width={w * mPct} height={h} preserveAspectRatio="none" clipPath={`url(#clip-${area.id})`} opacity={maskOpacity} />);
+                      maskElements.push(
+                        <g key="R" clipPath={`url(#${clipId})`}>
+                          <image href={rightImg} x={maxX - (w * mPct)} y={minY} width={w * mPct} height={h} preserveAspectRatio="none" opacity={maskOpacity} />
+                        </g>
+                      );
                     } else {
                       const leftImg = masks['รวบซ้าย'] || masks[action] || maskImgFallback;
-                      maskElements.push(<image key="L" href={leftImg} x={minX} y={minY} width={w * mPct} height={h} preserveAspectRatio="none" clipPath={`url(#clip-${area.id})`} opacity={maskOpacity} />);
+                      maskElements.push(
+                        <g key="L" clipPath={`url(#${clipId})`}>
+                          <image href={leftImg} x={minX} y={minY} width={w * mPct} height={h} preserveAspectRatio="none" opacity={maskOpacity} />
+                        </g>
+                      );
                     }
                   }
                 }
@@ -840,7 +934,7 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange }) => {
                   </g>
                 );
               })}
-              {mode === 'draw' && activeAreaId && !pointDrag && cursorPos && activeArea && activeArea.points.length > 1 && (
+              {mode === 'draw' && activeAreaId && isDrawing && !pointDrag && cursorPos && activeArea && activeArea.points.length > 0 && (
                 <polygon points={[...activeArea.points, cursorPos].map(p => `${p.x},${p.y}`).join(' ')} fill={activeArea.lineColor} fillOpacity={0.1} stroke="none" />
               )}
             </svg>
@@ -853,10 +947,10 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange }) => {
                     {area.points.map((p, idx) => {
                       const isLast = idx === area.points.length - 1;
                       const nextP = isLast ? area.points[0] : area.points[idx + 1];
-                      if (mode === 'draw' && isActive && isLast && !pointDrag) return null;
+                      if (mode === 'draw' && isActive && isDrawing && isLast && !pointDrag) return null;
                       if (area.points.length < 2) return null;
                       return (
-                        <line key={`line-${idx}`} x1={`${p.x}%`} y1={`${p.y}%`} x2={`${nextP.x}%`} y2={`${nextP.y}%`} stroke={area.lineColor} strokeWidth={area.lineWidth / zoom} strokeDasharray={isActive && !pointDrag ? "4 4" : "0"} className={isActive && !pointDrag ? "animate-pulse" : ""} style={{ pointerEvents: 'none' }} />
+                        <line key={`line-${idx}`} x1={`${p.x}%`} y1={`${p.y}%`} x2={`${nextP.x}%`} y2={`${nextP.y}%`} stroke={area.lineColor} strokeWidth={area.lineWidth / zoom} strokeDasharray={isActive && !pointDrag && isDrawing ? "4 4" : "0"} className={isActive && !pointDrag && isDrawing ? "animate-pulse" : ""} style={{ pointerEvents: 'none' }} />
                       );
                     })}
                     {area.points.map((p, idx) => (
@@ -867,7 +961,7 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange }) => {
                   </g>
                 );
               })}
-              {mode === 'draw' && activeAreaId && !pointDrag && cursorPos && activeArea && activeArea.points.length > 0 && (
+              {mode === 'draw' && activeAreaId && isDrawing && !pointDrag && cursorPos && activeArea && activeArea.points.length > 0 && (
                 <g style={{ pointerEvents: 'none' }}>
                   <line x1={`${activeArea.points[activeArea.points.length - 1].x}%`} y1={`${activeArea.points[activeArea.points.length - 1].y}%`} x2={`${cursorPos.x}%`} y2={`${cursorPos.y}%`} stroke={activeArea.lineColor} strokeWidth={2/zoom} strokeDasharray="4 4" />
                   <line x1={`${cursorPos.x}%`} y1={`${cursorPos.y}%`} x2={`${activeArea.points[0].x}%`} y2={`${activeArea.points[0].y}%`} stroke={activeArea.lineColor} strokeWidth={2/zoom} strokeDasharray="4 4" opacity="0.5" />
@@ -947,7 +1041,7 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange }) => {
         <div 
           style={{ position: 'fixed', left: panelPos.x, top: panelPos.y, width: '340px' }}
           className="z-[99999] bg-white/95 backdrop-blur-sm border border-gray-300 rounded shadow-2xl flex flex-col no-print cursor-default transition-shadow"
-          onMouseDown={(e) => e.stopPropagation()} onWheel={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()} onWheel={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}
         >
           <div onMouseDown={onPanelMouseDown} className="bg-gray-800 text-white px-3 py-2 flex justify-between items-center cursor-move rounded-t">
             <span className="font-bold text-xs flex items-center"><Move size={14} className="mr-1"/> เครื่องมือพื้นที่ (ลากอิสระ)</span>
@@ -956,13 +1050,13 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange }) => {
           
           <div className="flex gap-1 p-2 bg-gray-100 border-b">
             <button onClick={() => setMode('pan')} className={`flex-1 flex justify-center items-center px-2 py-1.5 rounded text-xs font-bold transition-colors ${mode === 'pan' ? 'bg-indigo-600 text-white shadow' : 'bg-white border text-gray-700 hover:bg-gray-50'}`}><Move size={14} className="mr-1"/> เลื่อน/ซูม</button>
-            <button onClick={() => setMode('draw')} className={`flex-1 flex justify-center items-center px-2 py-1.5 rounded text-xs font-bold transition-colors ${mode === 'draw' ? 'bg-red-500 text-white shadow' : 'bg-white border text-gray-700 hover:bg-gray-50'}`}><MousePointerClick size={14} className="mr-1"/> วาดพื้นที่</button>
+            <button onClick={() => setMode('draw')} className={`flex-1 flex justify-center items-center px-2 py-1.5 rounded text-xs font-bold transition-colors ${mode === 'draw' ? 'bg-red-500 text-white shadow' : 'bg-white border text-gray-700 hover:bg-gray-50'}`}><MousePointerClick size={14} className="mr-1"/> จัดการพื้นที่</button>
           </div>
 
           <div className="p-2 text-sm flex flex-col gap-2 max-h-[350px] overflow-y-auto">
             <div className="flex justify-between items-center">
                <button onClick={()=>{handleAddArea();}} className="bg-green-600 text-white px-3 py-1.5 rounded shadow-sm font-bold flex items-center text-xs hover:bg-green-700"><Plus size={14} className="mr-1"/> เพิ่มพื้นที่ม่าน</button>
-               {mode === 'draw' && activeAreaId && <span className="text-red-500 font-bold bg-red-50 px-2 py-1.5 rounded border border-red-200 text-[10px] animate-pulse">ดับเบิลคลิก เพื่อจบเส้น</span>}
+               {mode === 'draw' && activeAreaId && isDrawing && <span className="text-red-500 font-bold bg-red-50 px-2 py-1.5 rounded border border-red-200 text-[10px] animate-pulse">คลิกจุดเริ่มต้น เพื่อจบเส้น</span>}
             </div>
 
             {item.areas.map((area, idx) => {
@@ -972,7 +1066,14 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange }) => {
               return (
                 <div key={area.id} className={`flex flex-col gap-2 border p-2.5 rounded bg-white transition-all ${isActive ? 'border-blue-400 ring-2 ring-blue-100 shadow-md' : 'border-gray-200'}`}>
                   <div className="flex flex-wrap gap-1 items-center justify-between">
-                    <button onClick={() => { setActiveAreaId(isActive ? null : area.id); setMode('draw'); }} className={`px-2 py-1 rounded border font-bold flex items-center text-xs ${isActive ? 'bg-blue-50 text-blue-600 border-blue-200' : 'bg-gray-100 text-gray-700 border-gray-200 hover:bg-gray-200'}`}>บานที่ {idx + 1}</button>
+                    <div className="flex gap-1 items-center">
+                      <button onClick={() => { setActiveAreaId(isActive ? null : area.id); if(!isActive) setIsDrawing(false); setMode('draw'); }} className={`px-2 py-1 rounded border font-bold flex items-center text-xs ${isActive ? 'bg-blue-50 text-blue-600 border-blue-200' : 'bg-gray-100 text-gray-700 border-gray-200 hover:bg-gray-200'}`}>บานที่ {idx + 1}</button>
+                      {isActive && (
+                        <button onClick={() => setIsDrawing(!isDrawing)} className={`px-2 py-1 text-[10px] rounded font-bold shadow-sm transition-colors ${isDrawing ? 'bg-red-500 text-white animate-pulse' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}>
+                          {isDrawing ? 'หยุดวาดจุด' : '+ วาดจุดเพิ่ม'}
+                        </button>
+                      )}
+                    </div>
                     <div className="flex items-center gap-1.5 ml-auto">
                        <button onClick={() => handleUpdateArea(area.id, 'points', [])} className="text-xs text-orange-600 hover:bg-orange-50 px-2 py-1 rounded border border-orange-200 font-bold">ล้างเส้น</button>
                        <button onClick={() => handleRemoveArea(area.id)} className="bg-red-50 text-red-500 hover:bg-red-100 hover:text-red-700 px-2 py-1 rounded border border-red-200" title="ลบพื้นที่"><Trash2 size={14}/></button>
@@ -1059,6 +1160,7 @@ const App = () => {
   const [showDBSettings, setShowDBSettings] = useState(false);
   const [showUserMgmt, setShowUserMgmt] = useState(false);
   const [showCustomFabricModal, setShowCustomFabricModal] = useState(false);
+  const [dialog, setDialog] = useState(null);
 
   const [generalInfo, setGeneralInfo] = useState({
     surveyDate: new Date().toISOString().split('T')[0], confirmDate: '', installDates: [], location: '',
@@ -1109,19 +1211,31 @@ const App = () => {
     if (!firebaseUser || !appUser) return;
     const settingsRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'appDB');
     const unsub = onSnapshot(settingsRef, (snap) => {
-      if (snap.exists()) {
-        setAppDB(snap.data());
-        localStorage.setItem('backupAppDB', JSON.stringify(snap.data()));
+      if (snap.exists() && snap.data() && Object.keys(snap.data()).length > 0) {
+        const mergedDB = { ...DEFAULT_DB, ...snap.data() };
+        setAppDB(mergedDB);
+        localStorage.setItem('backupAppDB', JSON.stringify(mergedDB));
       } else {
         const localBackup = localStorage.getItem('backupAppDB');
         if(localBackup) setAppDB(JSON.parse(localBackup));
+        else setAppDB(DEFAULT_DB);
       }
     }, (err) => {
       const localBackup = localStorage.getItem('backupAppDB');
       if(localBackup) setAppDB(JSON.parse(localBackup));
+      else setAppDB(DEFAULT_DB);
     });
     return () => unsub();
   }, [firebaseUser, appUser]);
+
+  const saveAppDBToFirebase = async (newDB) => {
+    try {
+      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'appDB'), newDB);
+    } catch (err) {
+      console.error("Failed to save appDB", err);
+      setDialog({ type: 'alert', message: 'เกิดข้อผิดพลาดในการบันทึกฐานข้อมูล' });
+    }
+  };
 
   const handleLogout = () => {
     localStorage.removeItem('curtainAppUser');
@@ -1145,7 +1259,6 @@ const App = () => {
   const handleEdit = (proj) => {
     setCurrentProjectId(proj.id);
     setGeneralInfo({ ...proj.generalInfo, customFabrics: proj.generalInfo?.customFabrics || [] });
-    // Migrate older items to support layers if needed
     const migratedItems = (proj.items || []).map(item => ({
       ...item,
       layers: item.layers || 2,
@@ -1157,12 +1270,16 @@ const App = () => {
     setView('editor');
   };
 
-  const handleDelete = async (id, e) => {
+  const handleDelete = (id, e) => {
     e.stopPropagation();
-    if(window.confirm('คุณต้องการลบใบงานนี้ใช่หรือไม่?')) {
-      try { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'projects', id)); loadProjectsList(); } 
-      catch(err) { console.error(err); }
-    }
+    setDialog({
+      type: 'confirm',
+      message: 'คุณต้องการลบใบงานนี้ใช่หรือไม่?',
+      onConfirm: async () => {
+        try { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'projects', id)); loadProjectsList(); } 
+        catch(err) { console.error(err); }
+      }
+    });
   };
 
   const saveData = async () => {
@@ -1205,7 +1322,6 @@ const App = () => {
   
   const removeItem = (id) => setItems(prev => prev.filter(item => item.id !== id));
   
-  // Safe functional state update to handle synchronous rapid changes (like layers toggle)
   const handleItemChange = (id, field, value) => {
     setItems(prevItems => prevItems.map(item => item.id === id ? { ...item, [field]: value } : item));
   };
@@ -1265,7 +1381,8 @@ const App = () => {
   if (view === 'dashboard') {
     return (
       <div className="min-h-screen bg-gray-100 p-8 font-sans">
-        <UserManagementModal show={showUserMgmt} onClose={()=>setShowUserMgmt(false)} />
+        <AlertDialog dialog={dialog} onClose={() => setDialog(null)} />
+        <UserManagementModal show={showUserMgmt} onClose={()=>setShowUserMgmt(false)} setDialog={setDialog} />
         <div className="max-w-6xl mx-auto">
           <div className="flex justify-between items-center bg-white p-4 rounded-lg shadow-sm mb-6 border-b-4 border-blue-600">
             <div>
@@ -1311,8 +1428,9 @@ const App = () => {
 
   return (
     <div className="min-h-screen bg-gray-100 py-8 font-sans print:p-0">
-      <DatabaseModal appDB={appDB} setAppDB={setAppDB} showDBSettings={showDBSettings} setShowDBSettings={setShowDBSettings} saveData={saveData} />
-      <CustomFabricModal show={showCustomFabricModal} onClose={()=>setShowCustomFabricModal(false)} onAdd={(fab)=>setGeneralInfo(prev=>({...prev, customFabrics: [...(prev.customFabrics||[]), fab]}))} />
+      <AlertDialog dialog={dialog} onClose={() => setDialog(null)} />
+      <DatabaseModal appDB={appDB} setAppDB={setAppDB} showDBSettings={showDBSettings} setShowDBSettings={setShowDBSettings} saveAppDB={saveAppDBToFirebase} setDialog={setDialog} />
+      <CustomFabricModal show={showCustomFabricModal} onClose={()=>setShowCustomFabricModal(false)} onAdd={(fab)=>setGeneralInfo(prev=>({...prev, customFabrics: [...(prev.customFabrics||[]), fab]}))} setDialog={setDialog} />
 
       <style>{`
         @media print {
@@ -1460,7 +1578,7 @@ const App = () => {
                     <div className="w-full md:w-[70%] border-r border-gray-300 flex flex-col bg-white h-full relative z-20">
                       
                       <div className="h-[70%] w-full border-b border-gray-300 flex flex-col relative bg-gray-100 shrink-0">
-                        <ImageAreaEditor item={item} appDB={appDB} handleItemChange={handleItemChange} />
+                        <ImageAreaEditor item={item} appDB={appDB} handleItemChange={handleItemChange} setDialog={setDialog} idPrefix="print" />
                       </div>
                       
                       <div className="h-[30%] w-full p-2 bg-gray-50 flex items-center">
@@ -1679,7 +1797,7 @@ const App = () => {
                           </div>
                         </div>
 
-                        <div className="flex flex-col border-t border-gray-300 pt-2 shrink-0">
+                        <div className="flex flex-col pt-2 border-t border-gray-300 shrink-0">
                           <span className="font-bold text-red-600 print:text-gray-800 text-[14px] mb-1">หมายเหตุ</span>
                           <textarea value={item.note} onChange={(e)=>handleItemChange(item.id, 'note', e.target.value)} rows="2" 
                             className="w-full border border-red-200 rounded p-1.5 text-red-600 focus:outline-none focus:border-red-400 print-hidden resize-none bg-red-50 text-[12px] leading-tight"

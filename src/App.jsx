@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Plus, Trash2, Printer, Image as ImageIcon, Upload, Save, X, MousePointerClick, Settings, Database, Eye, EyeOff, Move, Users, LogOut, FileText, ArrowLeft, Share2, ChevronLeft, ChevronRight, ImagePlus } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, doc, setDoc, getDoc, collection, getDocs, deleteDoc } from 'firebase/firestore';
+import { getFirestore, doc, setDoc, getDoc, collection, getDocs, deleteDoc, onSnapshot } from 'firebase/firestore';
 
 // --- Firebase Initialization ---
 const firebaseConfig = {
@@ -21,8 +21,6 @@ const appId = "curtain-app-3d38a"; // ใช้ Project ID เป็น appId �
 // --- SVGs for default fallback ---
 const SVGS = {
   style_default: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect x="10" y="10" width="80" height="80" fill="%23eee" stroke="%23333" stroke-width="2"/><text x="50" y="55" font-size="12" text-anchor="middle" fill="%23999">ไม่มีรูป</text></svg>',
-  floor_1cm: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect x="20" y="10" width="60" height="75" fill="%23ccc" stroke="%23333"/><line x1="10" y1="90" x2="90" y2="90" stroke="%23000" stroke-width="4"/><text x="50" y="88" font-size="10" text-anchor="middle">1 ซม.</text></svg>',
-  floor_default: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect x="20" y="10" width="60" height="80" fill="%23ccc" stroke="%23333"/><line x1="10" y1="90" x2="90" y2="90" stroke="%23000" stroke-width="4"/></svg>'
 };
 
 const PRESET_COLORS = ['#EF4444', '#F97316', '#EAB308', '#22C55E', '#3B82F6', '#A855F7', '#EC4899', '#000000', '#FFFFFF'];
@@ -755,14 +753,14 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange }) => {
   const activeArea = item.areas.find(a => a.id === activeAreaId);
 
   return (
-    <div ref={wrapperRef} className="flex flex-col w-full h-full relative border-b border-gray-300">
+    <div ref={wrapperRef} className="flex flex-col w-full h-full relative border-b border-gray-300 bg-white">
       <div 
         ref={containerRef}
-        className={`relative w-full flex-grow overflow-hidden bg-gray-100 print:bg-transparent ${mode === 'pan' ? (isPanning ? 'cursor-grabbing' : 'cursor-grab') : (activeAreaId ? 'cursor-crosshair' : 'cursor-default')}`}
+        className={`relative w-full flex-grow overflow-hidden bg-gray-100 ${mode === 'pan' ? (isPanning ? 'cursor-grabbing' : 'cursor-grab') : (activeAreaId ? 'cursor-crosshair' : 'cursor-default')}`}
         onWheel={handleWheel} onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} onMouseLeave={handleMouseLeave} onClick={handleContentClick} onDoubleClick={handleDoubleClick}
       >
         {item.image ? (
-          <div style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: '0 0' }} className="w-full h-full relative print:transform-none transition-transform duration-75 ease-out">
+          <div style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: '0 0' }} className="w-full h-full relative transition-transform duration-75 ease-out">
             <img src={item.image} alt="Window view" className="w-full h-full object-cover pointer-events-none" />
             
             <label className="absolute top-2 left-2 bg-white/90 border border-gray-300 text-gray-700 px-3 py-1.5 rounded shadow-sm hover:bg-white no-print z-40 cursor-pointer flex items-center text-xs font-bold transition-colors" title="เปลี่ยนเฉพาะรูปพื้นหลัง">
@@ -801,7 +799,24 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange }) => {
                 
                 if (maskImgFallback) {
                   if (maskType === 'height') {
-                    maskElements.push(<image key="T" href={maskImgFallback} x={minX} y={minY} width={w} height={h * mPct} preserveAspectRatio="none" clipPath={`url(#clip-${area.id})`} opacity={maskOpacity} />);
+                    let topAngle = 0;
+                    if (area.points.length >= 2) {
+                      let topPts = [...area.points].sort((a,b)=>a.y - b.y).slice(0,2).sort((a,b)=>a.x - b.x);
+                      if (topPts.length === 2 && topPts[1].x !== topPts[0].x) {
+                        topAngle = Math.atan2(topPts[1].y - topPts[0].y, topPts[1].x - topPts[0].x) * (180/Math.PI);
+                      }
+                    }
+                    maskElements.push(
+                      <image 
+                        key="T" href={maskImgFallback} 
+                        x={minX - w*0.1} y={minY - h*0.1} 
+                        width={w * 1.2} height={(h * mPct) + (h * 0.1)} 
+                        preserveAspectRatio="none" 
+                        clipPath={`url(#clip-${area.id})`} 
+                        opacity={maskOpacity}
+                        transform={`rotate(${topAngle} ${minX + w/2} ${minY})`}
+                      />
+                    );
                   } else {
                     if (action.includes('แยกกลาง')) {
                       const leftImg = masks['รวบซ้าย'] || maskImgFallback;
@@ -1089,25 +1104,23 @@ const App = () => {
     if (firebaseUser && appUser && view === 'dashboard') loadProjectsList();
   }, [firebaseUser, appUser, view]);
 
+  // Real-time DB Sync Fix
   useEffect(() => {
     if (!firebaseUser || !appUser) return;
-    const loadDB = async () => {
-      try {
-        const settingsRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'appDB');
-        const snap = await getDoc(settingsRef);
-        if (snap.exists()) {
-          setAppDB(snap.data());
-          localStorage.setItem('backupAppDB', JSON.stringify(snap.data()));
-        } else {
-          const localBackup = localStorage.getItem('backupAppDB');
-          if(localBackup) setAppDB(JSON.parse(localBackup));
-        }
-      } catch(e) { 
+    const settingsRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'appDB');
+    const unsub = onSnapshot(settingsRef, (snap) => {
+      if (snap.exists()) {
+        setAppDB(snap.data());
+        localStorage.setItem('backupAppDB', JSON.stringify(snap.data()));
+      } else {
         const localBackup = localStorage.getItem('backupAppDB');
         if(localBackup) setAppDB(JSON.parse(localBackup));
       }
-    };
-    loadDB();
+    }, (err) => {
+      const localBackup = localStorage.getItem('backupAppDB');
+      if(localBackup) setAppDB(JSON.parse(localBackup));
+    });
+    return () => unsub();
   }, [firebaseUser, appUser]);
 
   const handleLogout = () => {
@@ -1304,14 +1317,12 @@ const App = () => {
       <style>{`
         @media print {
           @page { size: landscape A4; margin: 10mm; }
-          body { background: white; -webkit-print-color-adjust: exact; margin: 0; padding: 0; display: block; }
+          body { background: white; -webkit-print-color-adjust: exact; print-color-adjust: exact; margin: 0; padding: 0; display: block; }
           .no-print { display: none !important; }
           .print-hidden { display: none !important; }
           .print-block { display: block !important; }
           .print-flex { display: flex !important; }
           
-          .print-border-none { border: none !important; background: transparent !important; resize: none !important; box-shadow: none !important; padding: 0 !important; }
-          .print-bg-transparent { background: transparent !important; }
           .avoid-break { page-break-inside: avoid !important; }
           
           /* Force centering per page */
@@ -1332,8 +1343,6 @@ const App = () => {
             max-width: 277mm !important; /* Width of A4 (297mm) minus margins */
           }
           
-          .shadow-lg { box-shadow: none !important; }
-          .shadow-sm { box-shadow: none !important; }
           .print-transform-none { transform: none !important; }
           
           /* Utility wrappers for text */
@@ -1361,14 +1370,14 @@ const App = () => {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-4 avoid-break text-sm relative z-0">
-              <div className="p-4 border rounded-md print-border-none bg-gray-50 print-bg-transparent">
-                <h2 className="font-bold mb-3 border-b pb-1 inline-block text-base text-gray-800">ส่วนผู้จัดทำ</h2>
+              <div className="p-4 border border-gray-300 rounded-md bg-gray-50">
+                <h2 className="font-bold mb-3 border-b border-gray-300 pb-1 inline-block text-base text-gray-800">ส่วนผู้จัดทำ</h2>
                 <div className="space-y-2.5">
-                  <div className="flex items-center"><span className="w-36 font-bold text-gray-700">วันที่วัดพื้นที่ :</span><input type="date" name="surveyDate" value={generalInfo.surveyDate} onChange={handleGeneralChange} className="flex-1 border-b border-gray-300 outline-none focus:border-blue-500 px-1 print-border-none bg-transparent" /></div>
-                  <div className="flex items-center"><span className="w-36 font-bold text-gray-700">วันที่คอนเฟิร์ม :</span><input type="date" name="confirmDate" value={generalInfo.confirmDate} onChange={handleGeneralChange} className="flex-1 border-b border-gray-300 outline-none focus:border-blue-500 px-1 print-border-none bg-transparent" /></div>
+                  <div className="flex items-center"><span className="w-36 font-bold text-gray-700">วันที่วัดพื้นที่ :</span><input type="date" name="surveyDate" value={generalInfo.surveyDate} onChange={handleGeneralChange} className="flex-1 border-b border-gray-300 outline-none focus:border-blue-500 px-1 bg-transparent" /></div>
+                  <div className="flex items-center"><span className="w-36 font-bold text-gray-700">วันที่คอนเฟิร์ม :</span><input type="date" name="confirmDate" value={generalInfo.confirmDate} onChange={handleGeneralChange} className="flex-1 border-b border-gray-300 outline-none focus:border-blue-500 px-1 bg-transparent" /></div>
                   <div className="flex flex-col"><span className="font-bold mb-1 text-gray-700">วันที่ติดตั้งผ้าม่าน :</span>
-                    <div className="flex flex-wrap gap-1.5 items-center min-h-[28px] border-b border-gray-300 pb-1 print-border-none">
-                      {generalInfo.installDates.length > 0 ? generalInfo.installDates.map((d, i) => (<span key={i} className="bg-white px-2 py-0.5 rounded border shadow-sm flex items-center print-border-none print-bg-transparent font-bold text-blue-800 print:text-black">{d} <span className="mx-1 print-hidden no-print font-normal text-gray-400">/</span><X size={12} className="ml-1 cursor-pointer text-red-500 no-print hover:bg-red-100 rounded-full" onClick={() => removeInstallDate(d)}/></span>)) : <span className="text-gray-400 italic no-print text-xs">ยังไม่ได้ระบุ</span>}
+                    <div className="flex flex-wrap gap-1.5 items-center min-h-[28px] border-b border-gray-300 pb-1">
+                      {generalInfo.installDates.length > 0 ? generalInfo.installDates.map((d, i) => (<span key={i} className="bg-white px-2 py-0.5 rounded border shadow-sm flex items-center font-bold text-blue-800 print:text-black">{d} <span className="mx-1 print-hidden no-print font-normal text-gray-400">/</span><X size={12} className="ml-1 cursor-pointer text-red-500 no-print hover:bg-red-100 rounded-full" onClick={() => removeInstallDate(d)}/></span>)) : <span className="text-gray-400 italic no-print text-xs">ยังไม่ได้ระบุ</span>}
                       <div className="flex items-center ml-auto no-print"><input type="date" value={tempInstallDate} onChange={(e)=>setTempInstallDate(e.target.value)} className="border rounded px-2 py-1 text-xs outline-none focus:border-blue-500"/><button onClick={addInstallDate} className="bg-blue-100 text-blue-700 p-1.5 rounded ml-1 hover:bg-blue-200 transition-colors"><Plus size={14}/></button></div>
                     </div>
                   </div>
@@ -1380,19 +1389,19 @@ const App = () => {
                 </div>
                 <div className="mt-6 text-center"><p className="border-b border-gray-400 w-48 mx-auto mb-1"></p><p className="text-gray-600 text-sm font-bold">ผู้จัดทำ</p></div>
               </div>
-              <div className="p-4 border rounded-md print-border-none bg-blue-50/30 print-bg-transparent">
-                <h2 className="font-bold mb-3 border-b pb-1 inline-block text-base text-gray-800">ส่วนลูกค้า</h2>
+              <div className="p-4 border border-gray-300 rounded-md bg-blue-50/30">
+                <h2 className="font-bold mb-3 border-b border-gray-300 pb-1 inline-block text-base text-gray-800">ส่วนลูกค้า</h2>
                 <div className="space-y-2.5">
-                  <div className="flex items-center"><span className="w-32 font-bold text-gray-700">ชื่อ-นามสกุล :</span><input type="text" name="customerName" value={generalInfo.customerName} onChange={handleGeneralChange} className="flex-1 border-b border-gray-300 outline-none focus:border-blue-500 px-1 print-border-none font-bold text-blue-800 text-[15px] print:text-black bg-transparent" /></div>
-                  <div className="flex items-center"><span className="w-32 font-bold text-gray-700">เบอร์ติดต่อ :</span><input type="text" name="customerPhone" value={generalInfo.customerPhone} onChange={handleGeneralChange} className="flex-1 border-b border-gray-300 outline-none focus:border-blue-500 px-1 print-border-none font-medium bg-transparent" /></div>
-                  <div className="flex items-center mt-4"><span className="w-32 font-bold text-gray-700">ผู้ติดต่อแทน :</span><input type="text" name="agentName" value={generalInfo.agentName} onChange={handleGeneralChange} className="flex-1 border-b border-gray-300 outline-none focus:border-blue-500 px-1 print-border-none font-medium bg-transparent" /></div>
-                  <div className="flex items-center"><span className="w-32 font-bold text-gray-700">เบอร์ติดต่อ :</span><input type="text" name="agentPhone" value={generalInfo.agentPhone} onChange={handleGeneralChange} className="flex-1 border-b border-gray-300 outline-none focus:border-blue-500 px-1 print-border-none font-medium bg-transparent" /></div>
+                  <div className="flex items-center"><span className="w-32 font-bold text-gray-700">ชื่อ-นามสกุล :</span><input type="text" name="customerName" value={generalInfo.customerName} onChange={handleGeneralChange} className="flex-1 border-b border-gray-300 outline-none focus:border-blue-500 px-1 font-bold text-blue-800 text-[15px] print:text-black bg-transparent" /></div>
+                  <div className="flex items-center"><span className="w-32 font-bold text-gray-700">เบอร์ติดต่อ :</span><input type="text" name="customerPhone" value={generalInfo.customerPhone} onChange={handleGeneralChange} className="flex-1 border-b border-gray-300 outline-none focus:border-blue-500 px-1 font-medium bg-transparent" /></div>
+                  <div className="flex items-center mt-4"><span className="w-32 font-bold text-gray-700">ผู้ติดต่อแทน :</span><input type="text" name="agentName" value={generalInfo.agentName} onChange={handleGeneralChange} className="flex-1 border-b border-gray-300 outline-none focus:border-blue-500 px-1 font-medium bg-transparent" /></div>
+                  <div className="flex items-center"><span className="w-32 font-bold text-gray-700">เบอร์ติดต่อ :</span><input type="text" name="agentPhone" value={generalInfo.agentPhone} onChange={handleGeneralChange} className="flex-1 border-b border-gray-300 outline-none focus:border-blue-500 px-1 font-medium bg-transparent" /></div>
                 </div>
                 <div className="mt-8 text-center"><p className="border-b border-gray-400 w-48 mx-auto mb-1"></p><p className="text-gray-600 text-sm font-bold">ผู้สั่งซื้อ</p></div>
               </div>
             </div>
 
-            <div className="mb-6 avoid-break bg-red-50 p-3 rounded border border-red-100 print-bg-transparent print-border-none relative z-0">
+            <div className="mb-6 avoid-break bg-red-50 p-3 rounded border border-red-200 relative z-0">
               <h3 className="font-bold text-red-600 print:text-gray-800 mb-2 text-sm print:text-[15px] underline">หมายเหตุเงื่อนไข :</h3>
               <textarea name="terms" value={generalInfo.terms} onChange={handleGeneralChange} rows="4" className="w-full text-xs bg-transparent outline-none print-hidden text-gray-700 leading-tight resize-none"></textarea>
               <div className="hidden print-block w-full text-[13px] text-gray-800 leading-relaxed whitespace-pre-wrap font-medium">{generalInfo.terms}</div>
@@ -1408,7 +1417,6 @@ const App = () => {
             const sMain1 = item.styleMain1 || item.styleMain || '';
             const sMain2 = item.styleMain2 || '';
             const styleImg1 = sMain1 && appDB.styleImages?.[sMain1];
-            const styleImg2 = sMain2 && appDB.styleImages?.[sMain2];
             
             const getFabImg = (fab) => {
               if(!fab) return null;
@@ -1438,15 +1446,15 @@ const App = () => {
                }
             }
 
-            const marginImg = item.marginBottom && item.marginBottom !== '-' ? appDB.marginImages?.[item.marginBottom] || (item.marginBottom.includes('1 ซม.') ? SVGS.floor_1cm : SVGS.floor_default) : null;
+            const marginImg = item.marginBottom && item.marginBottom !== '-' ? appDB.marginImages?.[item.marginBottom] : null;
 
             return (
               <div key={item.id} className="print-center-page w-full relative mb-10 print:mb-0">
-                <div className="print-content-wrapper w-full border-2 border-gray-800 p-1 relative rounded bg-white hover:z-50 transition-all duration-300 shadow-sm hover:shadow-md print:p-0 print:border-none print:shadow-none">
-                  <div className="absolute top-0 left-0 bg-gray-800 text-white px-4 py-1.5 text-sm font-bold z-10 rounded-br print:top-0 print:left-0">รายการที่ {index + 1}</div>
+                <div className="print-content-wrapper w-full border-2 border-gray-800 p-1 relative rounded bg-white hover:z-50 transition-all duration-300 shadow-sm hover:shadow-md">
+                  <div className="absolute top-0 left-0 bg-gray-800 text-white px-4 py-1.5 text-sm font-bold z-10 rounded-br">รายการที่ {index + 1}</div>
                   <button onClick={() => removeItem(item.id)} className="no-print absolute -top-3 -right-3 bg-red-500 text-white rounded-full p-2 hover:bg-red-600 shadow z-20 transition-transform hover:scale-110"><Trash2 size={16} /></button>
 
-                  <div className="border border-gray-300 flex flex-col md:flex-row h-[750px] print:h-[170mm] mt-8 md:mt-0 bg-white relative print:border-2 print:border-gray-800 print:rounded-md overflow-hidden w-full box-border print:mt-0">
+                  <div className="border border-gray-300 flex flex-col md:flex-row h-[750px] print:h-[185mm] mt-8 md:mt-0 bg-white relative overflow-hidden w-full box-border">
                     
                     {/* Left Column 70% */}
                     <div className="w-full md:w-[70%] border-r border-gray-300 flex flex-col bg-white h-full relative z-20">
@@ -1455,43 +1463,41 @@ const App = () => {
                         <ImageAreaEditor item={item} appDB={appDB} handleItemChange={handleItemChange} />
                       </div>
                       
-                      <div className="h-[30%] w-full p-2 bg-gray-50 print-bg-transparent print-border-none flex items-center">
-                        <div className="grid grid-cols-4 gap-3 print:gap-4 w-full h-full">
+                      <div className="h-[30%] w-full p-2 bg-gray-50 flex items-center">
+                        <div className="w-full h-full grid grid-cols-4 gap-3 print:gap-4">
                           
-                          <div className="flex flex-col items-center bg-white border border-gray-200 p-2 print:p-0 rounded shadow-sm print-border-none h-full justify-between overflow-hidden print:shadow-none">
-                            <span className="text-[12px] font-bold text-gray-800 w-full text-center mb-1.5 print:mb-2 shrink-0">รูปแบบม่าน</span>
-                            <div className="flex-1 w-full bg-gray-50 print:bg-transparent border border-gray-100 print:border-transparent flex items-center justify-center rounded overflow-hidden p-0 relative print:my-2">
-                              {styleImg1 && <img src={styleImg1} className={`h-full object-cover print:border print:border-gray-200 print:rounded ${item.layers === 2 && styleImg2 ? 'w-1/2' : 'w-full'}`} />}
-                              {item.layers === 2 && styleImg2 && <img src={styleImg2} className={`h-full object-cover print:border print:border-gray-200 print:rounded border-l border-gray-200 ${styleImg1 ? 'w-1/2 print:ml-1' : 'w-full'}`} />}
-                              {!styleImg1 && (!styleImg2 || item.layers === 1) && <img src={SVGS.style_default} className="max-w-[50px] max-h-[50px] opacity-50" />}
+                          <div className="flex flex-col items-center bg-white border border-gray-200 p-2 rounded shadow-sm h-full justify-between overflow-hidden">
+                            <span className="text-[13px] font-bold text-gray-800 w-full text-center mb-2 shrink-0">รูปแบบม่าน</span>
+                            <div className="flex-1 w-full bg-gray-50 border border-gray-100 flex items-center justify-center rounded overflow-hidden p-0 relative mb-2">
+                              {styleImg1 ? <img src={styleImg1} className="w-full h-full object-cover" /> : <img src={SVGS.style_default} className="max-w-[50px] max-h-[50px] opacity-50" />}
                             </div>
-                            <span className="text-[11px] text-blue-800 print:text-black print:whitespace-normal print:break-words w-full text-center mt-1.5 print:mt-2 font-bold shrink-0">
+                            <span className="text-[11px] text-blue-800 print:text-black print:whitespace-normal print:break-words w-full text-center font-bold shrink-0">
                               {sMain1 || '-'} {item.layers === 2 ? ` / ${sMain2 || '-'}` : ''}
                             </span>
                           </div>
 
-                          <div className="flex flex-col items-center bg-white border border-gray-200 p-2 print:p-0 rounded shadow-sm print-border-none h-full justify-between overflow-hidden print:shadow-none">
-                            <span className="text-[12px] font-bold text-gray-800 w-full text-center mb-1.5 print:mb-2 shrink-0">{txtMain || 'ชั้นที่ 1'}</span>
-                            <div className="flex-1 w-full border border-gray-100 print:border-transparent flex items-center justify-center rounded overflow-hidden bg-gray-50 print:bg-transparent p-0 print:my-2">
-                              {imgMain ? <img src={imgMain} className="w-full h-full object-cover print:border print:border-gray-200 print:rounded" /> : <span className="text-[10px] text-gray-400">ไม่มีรูป</span>}
+                          <div className="flex flex-col items-center bg-white border border-gray-200 p-2 rounded shadow-sm h-full justify-between overflow-hidden">
+                            <span className="text-[13px] font-bold text-gray-800 w-full text-center mb-2 shrink-0">{txtMain || 'ชั้นที่ 1'}</span>
+                            <div className="flex-1 w-full border border-gray-100 flex items-center justify-center rounded overflow-hidden bg-gray-50 p-0 mb-2">
+                              {imgMain ? <img src={imgMain} className="w-full h-full object-cover" /> : <span className="text-[10px] text-gray-400">-</span>}
                             </div>
-                            <span className="text-[11px] text-gray-700 w-full text-center mt-1.5 print:mt-2 font-bold shrink-0 print:whitespace-normal print:break-words">{colMain || '-'}</span>
+                            <span className="text-[11px] text-gray-700 w-full text-center font-bold shrink-0 print:whitespace-normal print:break-words">{colMain || '-'}</span>
                           </div>
 
-                          <div className={`flex flex-col items-center bg-white border border-gray-200 p-2 print:p-0 rounded shadow-sm print-border-none h-full justify-between overflow-hidden print:shadow-none ${item.layers === 1 ? 'opacity-30 print:opacity-0' : ''}`}>
-                            <span className="text-[12px] font-bold text-gray-800 w-full text-center mb-1.5 print:mb-2 shrink-0">{item.layers === 2 ? (txtSheer || 'ชั้นที่ 2') : '-'}</span>
-                            <div className="flex-1 w-full border border-gray-100 print:border-transparent flex items-center justify-center rounded overflow-hidden bg-gray-50 print:bg-transparent p-0 print:my-2">
-                              {item.layers === 2 && imgSheer ? <img src={imgSheer} className="w-full h-full object-cover print:border print:border-gray-200 print:rounded" /> : <span className="text-[10px] text-gray-400">-</span>}
+                          <div className={`flex flex-col items-center bg-white border border-gray-200 p-2 rounded shadow-sm h-full justify-between overflow-hidden ${item.layers === 1 ? 'opacity-40 print:opacity-50' : ''}`}>
+                            <span className="text-[13px] font-bold text-gray-800 w-full text-center mb-2 shrink-0">{item.layers === 2 ? (txtSheer || 'ชั้นที่ 2') : 'ชั้นที่ 2'}</span>
+                            <div className="flex-1 w-full border border-gray-100 flex items-center justify-center rounded overflow-hidden bg-gray-50 p-0 mb-2">
+                              {item.layers === 2 && imgSheer ? <img src={imgSheer} className="w-full h-full object-cover" /> : <span className="text-[10px] text-gray-400">-</span>}
                             </div>
-                            <span className="text-[11px] text-gray-700 w-full text-center mt-1.5 print:mt-2 font-bold shrink-0 print:whitespace-normal print:break-words">{item.layers === 2 ? (colSheer || '-') : '-'}</span>
+                            <span className="text-[11px] text-gray-700 w-full text-center font-bold shrink-0 print:whitespace-normal print:break-words">{item.layers === 2 ? (colSheer || '-') : '-'}</span>
                           </div>
 
-                          <div className="flex flex-col items-center bg-white border border-gray-200 p-2 print:p-0 rounded shadow-sm print-border-none h-full justify-between overflow-hidden print:shadow-none">
-                            <span className="text-[12px] font-bold text-gray-800 w-full text-center mb-1.5 print:mb-2 shrink-0">ระยะชายม่าน</span>
-                            <div className="flex-1 w-full bg-gray-50 print:bg-transparent border border-gray-100 print:border-transparent flex items-center justify-center rounded overflow-hidden p-0 print:my-2">
-                              {marginImg ? <img src={marginImg} className="w-full h-full object-cover print:border print:border-gray-200 print:rounded" /> : <span className="text-[10px] text-gray-400">-</span>}
+                          <div className="flex flex-col items-center bg-white border border-gray-200 p-2 rounded shadow-sm h-full justify-between overflow-hidden">
+                            <span className="text-[13px] font-bold text-gray-800 w-full text-center mb-2 shrink-0">ระยะชายม่าน</span>
+                            <div className="flex-1 w-full bg-gray-50 border border-gray-100 flex items-center justify-center rounded overflow-hidden p-0 mb-2">
+                              {marginImg ? <img src={marginImg} className="w-full h-full object-cover" /> : <span className="text-[10px] text-gray-400">-</span>}
                             </div>
-                            <span className="text-[11px] text-gray-700 w-full text-center mt-1.5 print:mt-2 font-bold shrink-0 print:whitespace-normal print:break-words">{item.marginBottom || '-'}</span>
+                            <span className="text-[11px] text-gray-700 w-full text-center font-bold shrink-0 print:whitespace-normal print:break-words">{item.marginBottom || '-'}</span>
                           </div>
 
                         </div>
@@ -1501,23 +1507,23 @@ const App = () => {
                     {/* Right Column 30% */}
                     <div className="w-full md:w-[30%] text-xs flex flex-col bg-white overflow-y-auto print:overflow-hidden h-full relative z-10">
                       
-                      <div className="bg-gray-800 text-white p-3 print:p-0 print:pt-4 print:px-3 flex flex-col print-border-none print-bg-transparent shrink-0">
+                      <div className="bg-gray-800 text-white p-3 print:bg-white print:text-black print:p-3 print:pb-0 flex flex-col shrink-0">
                         <span className="mb-1 text-gray-300 print-hidden font-bold text-xs">ห้อง / ตำแหน่ง :</span>
                         <textarea value={item.roomPos} onChange={(e)=>handleItemChange(item.id, 'roomPos', e.target.value)} className="w-full bg-transparent outline-none border-b border-gray-500 focus:border-white resize-none text-sm font-bold leading-tight print-hidden placeholder-gray-400 text-yellow-300" placeholder="ระบุห้อง เช่น ชั้น 1 / โถงกลม บานที่ 1" rows="2" />
-                        <div className="hidden print-block w-full text-[15px] font-bold leading-tight text-black whitespace-pre-wrap border-b-2 border-gray-800 pb-2 mb-2">{item.roomPos || '-'}</div>
+                        <div className="hidden print-block w-full text-[15px] font-bold leading-tight text-black whitespace-pre-wrap border-b border-gray-800 pb-2 mb-1">{item.roomPos || '-'}</div>
                       </div>
                       
-                      <div className="p-3 print:p-3 print:pt-0 flex-1 flex flex-col justify-between gap-4 print:gap-1.5 h-full">
+                      <div className="p-3 print:pt-1 flex-1 flex flex-col justify-between gap-4 print:gap-2 h-full">
                         
-                        <div className="border border-gray-300 p-2 rounded bg-gray-50 print-border-none print-bg-transparent print:p-0">
-                          <div className="flex justify-between items-center mb-2 print:mb-1 border-b border-gray-300 pb-1">
-                            <span className="font-bold text-gray-800 text-[13px]">รายละเอียดวัสดุ/ผ้า</span>
+                        <div className="border border-gray-300 p-2 rounded bg-gray-50">
+                          <div className="flex justify-between items-center mb-2 border-b border-gray-300 pb-1">
+                            <span className="font-bold text-gray-800 text-[14px]">รายละเอียดวัสดุ/ผ้า</span>
                             <button onClick={()=>setShowCustomFabricModal(true)} className="no-print bg-indigo-100 hover:bg-indigo-200 text-indigo-700 border border-indigo-200 px-2 py-1 rounded text-[10px] font-bold shadow-sm transition-colors flex items-center"><Plus size={12} className="mr-0.5"/> ผ้านอกระบบ</button>
                           </div>
                           {item.areas.length === 0 && <span className="text-gray-400 italic no-print text-xs">เพิ่มพื้นที่บนรูปหน้างานก่อน</span>}
                           {item.areas.map((area, aIdx) => (
-                            <div key={area.id} className="mb-3 print:mb-1.5 border-l-[3px] border-blue-500 print:border-gray-800 pl-2">
-                              <div className="font-bold text-blue-800 print:text-black mb-1.5 print:mb-1 flex justify-between items-center bg-blue-50 px-1.5 py-1 rounded print-bg-transparent print:p-0 text-[12px]">
+                            <div key={area.id} className="mb-3 border-l-[3px] border-blue-500 print:border-gray-800 pl-2">
+                              <div className="font-bold text-blue-800 print:text-black mb-1.5 flex justify-between items-center bg-blue-50 print:bg-gray-200 px-1.5 py-1 rounded text-[12px]">
                                 <span>บานที่ {aIdx + 1} <span className="font-normal">(ก:{area.width||'-'} ส:{area.height||'-'})</span></span>
                                 <div className="flex items-center gap-2">
                                   {area.fabrics.length < (item.layers || 2) && (
@@ -1545,7 +1551,7 @@ const App = () => {
                                 }
 
                                 return (
-                                  <div key={fab.id} className="flex flex-col gap-1.5 mb-1.5 print:mb-0.5 bg-white p-1.5 print:p-0 border border-gray-200 print:border-none rounded relative pr-5 print:pr-0 shadow-sm print:shadow-none">
+                                  <div key={fab.id} className="flex flex-col gap-1.5 mb-1.5 bg-white p-1.5 border border-gray-200 rounded relative pr-5 print:pr-1 shadow-sm print:shadow-none">
                                     <button onClick={()=>removeFabric(item.id, area.id, fab.id)} className="absolute top-1 right-1 text-red-500 hover:bg-red-50 rounded no-print transition-colors"><X size={14}/></button>
                                     
                                     <div className="print-hidden flex flex-col gap-1.5">
@@ -1567,7 +1573,7 @@ const App = () => {
                                       </div>
                                     </div>
 
-                                    <div className="hidden print-flex flex-col gap-0.5 text-[11px] leading-snug">
+                                    <div className="hidden print-flex flex-col gap-0.5 text-[12px] leading-snug">
                                       <span className="font-bold text-gray-900 whitespace-pre-wrap">{fab.mainType || '-'} {fab.subType ? `/ ${fab.subType}` : ''}</span>
                                       <span className="text-gray-800 whitespace-pre-wrap">{fab.name || '-'} {fab.color ? `/ ${fab.color}` : ''}</span>
                                     </div>
@@ -1579,8 +1585,8 @@ const App = () => {
                           ))}
                         </div>
 
-                        <div className="flex flex-col gap-3 py-1 print:py-0 flex-1 justify-center">
-                          <div className="flex flex-col"><span className="font-bold text-gray-800 text-[13px] border-b border-gray-300 pb-1 mb-1">รูปแบบการทำงาน</span>
+                        <div className="flex flex-col gap-3 py-1 flex-1 justify-center">
+                          <div className="flex flex-col"><span className="font-bold text-gray-800 text-[14px] border-b border-gray-300 pb-1 mb-1">รูปแบบการทำงาน</span>
                             <div className="flex items-center gap-4 mb-2 bg-gray-100 p-1.5 rounded print-hidden">
                               <span className="text-[11px] font-bold text-gray-600">จำนวนชั้นม่าน:</span>
                               <label className="flex items-center gap-1 text-[11px] cursor-pointer font-bold"><input type="radio" checked={item.layers === 1} onChange={()=>handleLayerChange(item.id, 1)}/> 1 ชั้น</label>
@@ -1594,7 +1600,7 @@ const App = () => {
                               <select value={item.styleAction1 || item.styleAction || ''} onChange={(e)=>handleItemChange(item.id, 'styleAction1', e.target.value)} className="w-1/2 border-b border-gray-400 outline-none bg-transparent text-blue-800 font-bold text-xs"><option value="">-เปิดปิด-</option>{(appDB.actions || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
                             </div>
                             
-                            <div className="hidden print-block text-[11px] font-bold text-gray-800 mt-1 whitespace-pre-wrap">
+                            <div className="hidden print-block text-[13px] font-bold text-gray-800 mt-1 whitespace-pre-wrap">
                               {item.layers !== 1 && <span className="text-gray-600 mr-1">ชั้นที่ 1:</span>}
                               {sMain1 || '-'} {item.styleAction1 || item.styleAction ? `/ ${item.styleAction1 || item.styleAction}` : ''}
                             </div>
@@ -1607,7 +1613,7 @@ const App = () => {
                                   <span className="text-gray-400 font-bold">/</span>
                                   <select value={item.styleAction2 || ''} onChange={(e)=>handleItemChange(item.id, 'styleAction2', e.target.value)} className="w-1/2 border-b border-gray-400 outline-none bg-transparent text-blue-800 font-bold text-xs"><option value="">-เปิดปิด-</option>{(appDB.actions || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
                                 </div>
-                                <div className="hidden print-block text-[11px] font-bold text-gray-800 mt-1 whitespace-pre-wrap">
+                                <div className="hidden print-block text-[13px] font-bold text-gray-800 mt-1 whitespace-pre-wrap">
                                   <span className="text-gray-600 mr-1">ชั้นที่ 2:</span>
                                   {sMain2 || '-'} {item.styleAction2 ? `/ ${item.styleAction2}` : ''}
                                 </div>
@@ -1615,37 +1621,37 @@ const App = () => {
                             )}
                           </div>
 
-                          <div className="flex flex-col"><span className="font-bold text-gray-800 text-[13px] border-b border-gray-300 pb-1 mb-1">รางม่าน</span>
-                            <div className="flex flex-wrap gap-1.5 mt-1 print-border-none">
-                              {item.tracks?.map(t => <span key={t} className="bg-gray-100 print:bg-transparent px-2 print:px-0 py-0.5 rounded border border-gray-300 print:border-none text-[11px] flex items-center shadow-sm print:shadow-none font-bold text-gray-800">{t} <X size={10} className="ml-1 cursor-pointer text-red-500 no-print" onClick={()=>handleMultiSelect(item.id, 'tracks', t)}/></span>)}
-                              <select className="w-full border-b border-gray-300 outline-none no-print mt-1 text-[11px] text-gray-500 font-medium" onChange={(e) => {if(e.target.value) handleMultiSelect(item.id, 'tracks', e.target.value); e.target.value='';}}><option value="">+ เพิ่มชนิดรางม่าน</option>{(appDB.tracks || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
+                          <div className="flex flex-col"><span className="font-bold text-gray-800 text-[14px] border-b border-gray-300 pb-1 mb-1">รางม่าน</span>
+                            <div className="flex flex-wrap gap-1.5 mt-1">
+                              {item.tracks?.map(t => <span key={t} className="bg-gray-100 px-2 py-0.5 rounded border border-gray-300 text-[12px] flex items-center shadow-sm font-bold text-gray-800">{t} <X size={10} className="ml-1 cursor-pointer text-red-500 no-print" onClick={()=>handleMultiSelect(item.id, 'tracks', t)}/></span>)}
+                              <select className="w-full border-b border-gray-300 outline-none no-print mt-1 text-[11px] text-gray-500 font-medium bg-transparent" onChange={(e) => {if(e.target.value) handleMultiSelect(item.id, 'tracks', e.target.value); e.target.value='';}}><option value="">+ เพิ่มชนิดรางม่าน</option>{(appDB.tracks || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
                             </div>
                           </div>
 
-                          <div className="grid grid-cols-2 gap-3 print:gap-2 mt-1">
+                          <div className="grid grid-cols-2 gap-3 mt-1">
                              <div className="flex flex-col">
-                               <span className="font-bold text-gray-800 text-[13px] border-b border-gray-300 pb-1 mb-1">ขาจับราง</span>
+                               <span className="font-bold text-gray-800 text-[14px] border-b border-gray-300 pb-1 mb-1">ขาจับราง</span>
                                <select value={item.bracket} onChange={(e)=>handleItemChange(item.id, 'bracket', e.target.value)} className="border-b border-gray-300 outline-none print-hidden bg-transparent text-xs font-medium mt-0.5"><option value="">-ระบุ-</option>{(appDB.brackets || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
-                               <div className="hidden print-block text-[11px] font-bold mt-1 whitespace-pre-wrap text-gray-800">{item.bracket || '-'}</div>
+                               <div className="hidden print-block text-[13px] font-bold mt-1 whitespace-pre-wrap text-gray-800">{item.bracket || '-'}</div>
                              </div>
                              <div className="flex flex-col">
-                               <span className="font-bold text-gray-800 text-[13px] border-b border-gray-300 pb-1 mb-1">การแขวน</span>
+                               <span className="font-bold text-gray-800 text-[14px] border-b border-gray-300 pb-1 mb-1">การแขวน</span>
                                <select value={item.hangStyle} onChange={(e)=>handleItemChange(item.id, 'hangStyle', e.target.value)} className="border-b border-gray-300 outline-none print-hidden bg-transparent text-xs font-medium mt-0.5"><option value="">-ระบุ-</option>{(appDB.hangStyles || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
-                               <div className="hidden print-block text-[11px] font-bold mt-1 whitespace-pre-wrap text-gray-800">{item.hangStyle || '-'}</div>
+                               <div className="hidden print-block text-[13px] font-bold mt-1 whitespace-pre-wrap text-gray-800">{item.hangStyle || '-'}</div>
                              </div>
                           </div>
 
-                          <div className="flex flex-col mt-1"><span className="font-bold text-gray-800 text-[13px] border-b border-gray-300 pb-1 mb-1">อุปกรณ์เสริม</span>
-                            <div className="flex flex-wrap gap-1.5 mt-1 print-border-none">
-                              {item.accessories?.map(t => <span key={t} className="bg-gray-100 print:bg-transparent px-2 print:px-0 py-0.5 rounded border border-gray-300 print:border-none text-[11px] flex items-center shadow-sm print:shadow-none font-bold text-gray-800">{t} <X size={10} className="ml-1 cursor-pointer text-red-500 no-print" onClick={()=>handleMultiSelect(item.id, 'accessories', t)}/></span>)}
-                              <select className="w-full border-b border-gray-300 outline-none no-print mt-1 text-[11px] text-gray-500 font-medium" onChange={(e) => {if(e.target.value) handleMultiSelect(item.id, 'accessories', e.target.value); e.target.value='';}}><option value="">+ เพิ่มอุปกรณ์เสริม</option>{(appDB.accessories || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
+                          <div className="flex flex-col mt-1"><span className="font-bold text-gray-800 text-[14px] border-b border-gray-300 pb-1 mb-1">อุปกรณ์เสริม</span>
+                            <div className="flex flex-wrap gap-1.5 mt-1">
+                              {item.accessories?.map(t => <span key={t} className="bg-gray-100 px-2 py-0.5 rounded border border-gray-300 text-[12px] flex items-center shadow-sm font-bold text-gray-800">{t} <X size={10} className="ml-1 cursor-pointer text-red-500 no-print" onClick={()=>handleMultiSelect(item.id, 'accessories', t)}/></span>)}
+                              <select className="w-full border-b border-gray-300 outline-none no-print mt-1 text-[11px] text-gray-500 font-medium bg-transparent" onChange={(e) => {if(e.target.value) handleMultiSelect(item.id, 'accessories', e.target.value); e.target.value='';}}><option value="">+ เพิ่มอุปกรณ์เสริม</option>{(appDB.accessories || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
                             </div>
                           </div>
                         </div>
 
-                        <div className="border border-gray-300 p-2 rounded bg-gray-50 print-border-none print-bg-transparent print:p-0">
-                          <span className="font-bold text-gray-800 block mb-1.5 border-b border-gray-300 pb-1 text-[13px]">ระยะการเผื่อม่าน</span>
-                          <div className="grid grid-cols-1 gap-y-2 print:gap-y-1 text-[12px] print:text-[11px]">
+                        <div className="border border-gray-300 p-2 rounded bg-gray-50">
+                          <span className="font-bold text-gray-800 block mb-1.5 border-b border-gray-300 pb-1 text-[14px]">ระยะการเผื่อม่าน</span>
+                          <div className="grid grid-cols-1 gap-y-2 text-[12px]">
                             <div className="flex gap-3">
                               <div className="flex flex-col w-1/2"><span className="text-gray-600 font-bold">ด้านซ้าย:</span>
                                 <select value={item.marginLeft} onChange={(e)=>handleItemChange(item.id, 'marginLeft', e.target.value)} className="border-b border-gray-300 outline-none print-hidden bg-transparent font-medium"><option value="">-เลือก-</option>{(appDB.margins?.horizontal || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
@@ -1673,12 +1679,12 @@ const App = () => {
                           </div>
                         </div>
 
-                        <div className="flex flex-col pt-2 print:pt-1 border-t border-gray-200 shrink-0">
-                          <span className="font-bold text-red-600 print:text-gray-800 text-[13px] mb-1">หมายเหตุ</span>
+                        <div className="flex flex-col border-t border-gray-300 pt-2 shrink-0">
+                          <span className="font-bold text-red-600 print:text-gray-800 text-[14px] mb-1">หมายเหตุ</span>
                           <textarea value={item.note} onChange={(e)=>handleItemChange(item.id, 'note', e.target.value)} rows="2" 
-                            className="w-full mt-1 border border-red-200 rounded p-1.5 text-red-600 focus:outline-none focus:border-red-400 print-hidden resize-none bg-red-50 text-[12px] leading-tight"
+                            className="w-full border border-red-200 rounded p-1.5 text-red-600 focus:outline-none focus:border-red-400 print-hidden resize-none bg-red-50 text-[12px] leading-tight"
                             placeholder="ระบุหมายเหตุเพิ่มเติม (ถ้ามี)"></textarea>
-                          <div className="hidden print-block w-full text-[11px] leading-relaxed whitespace-pre-wrap font-bold text-red-600">{item.note || '-'}</div>
+                          <div className="hidden print-block w-full text-[13px] leading-relaxed whitespace-pre-wrap font-bold text-red-600">{item.note || '-'}</div>
                         </div>
 
                       </div>

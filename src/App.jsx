@@ -377,19 +377,19 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
           <h2 className="text-xl font-bold flex items-center text-blue-800"><Database className="mr-2"/> ฐานข้อมูลออนไลน์ (Admin Only)</h2>
           <button onClick={() => setShowDBSettings(false)} className="text-gray-500 hover:text-red-500"><X size={24}/></button>
         </div>
-        <div className="flex flex-1 overflow-hidden">
-          <div className="w-1/4 border-r bg-gray-100 p-2 flex flex-col gap-1 overflow-y-auto">
+        <div className="flex flex-col md:flex-row flex-1 overflow-hidden">
+          <div className="w-full md:w-1/4 border-b md:border-b-0 md:border-r bg-gray-100 p-2 flex flex-row md:flex-col gap-1 overflow-x-auto md:overflow-y-auto whitespace-nowrap">
             {[{id: 'fabrics', label: 'เนื้อผ้าและม่าน'}, {id: 'styles', label: 'รูปแบบม่าน'}, {id: 'masks', label: 'มาสก์หน้างาน'}, {id: 'margins', label: 'ระยะชายม่าน'}, {id: 'tracks', label: 'รางม่าน & ขาจับ'}, {id: 'accessories', label: 'อุปกรณ์เสริม'}].map(t => (
               <button key={t.id} onClick={()=>setActiveTab(t.id)} className={`text-left px-3 py-2 rounded text-sm ${activeTab===t.id ? 'bg-blue-600 text-white font-bold shadow' : 'hover:bg-gray-200 text-gray-700'}`}>{t.label}</button>
             ))}
           </div>
-          <div className="w-3/4 p-4 overflow-y-auto bg-white">
+          <div className="w-full md:w-3/4 p-4 overflow-y-auto bg-white">
             {activeTab === 'fabrics' && (
               <div className="flex flex-col gap-4">
                 <h3 className="font-bold text-lg text-blue-700 border-b pb-2">จัดการเนื้อผ้าและม่าน (ระบุ ชื่อ/สี พร้อมรูปตัวอย่าง)</h3>
                 <div>
                   <label className="block text-sm font-bold mb-2">1. หมวดหมู่หลัก</label>
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 flex-wrap">
                     {Object.keys(appDB.curtainTypes || {}).map(c => (
                       <button key={c} onClick={()=>{setCat(c); setType(''); setSearchFabric('');}} className={`px-4 py-1.5 border rounded-full text-sm transition-colors ${cat===c ? 'bg-blue-600 text-white border-blue-600 shadow' : 'bg-white hover:bg-gray-50'}`}>{c}</button>
                     ))}
@@ -409,22 +409,22 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
                       </div>
                     ))}
                   </div>
-                  <div className="flex gap-2">
-                    <input type="text" id="newType" placeholder="เพิ่มประเภทม่านใหม่..." className="border px-3 py-1.5 rounded text-sm w-64 focus:outline-blue-500"/>
+                  <div className="flex flex-wrap gap-2">
+                    <input type="text" id="newType" placeholder="เพิ่มประเภทม่านใหม่..." className="border px-3 py-1.5 rounded text-sm w-full md:w-64 focus:outline-blue-500"/>
                     <button onClick={()=>{const v=document.getElementById('newType').value; addFabricType(v); document.getElementById('newType').value='';}} className="bg-green-600 hover:bg-green-700 text-white px-4 py-1.5 rounded text-sm font-bold">เพิ่ม</button>
                   </div>
                 </div>
 
                 {type && (
                   <div className="bg-indigo-50 p-4 border border-indigo-100 rounded-lg flex flex-col gap-4">
-                    <div className="flex justify-between items-center border-b border-indigo-200 pb-2">
+                    <div className="flex flex-col md:flex-row justify-between md:items-center border-b border-indigo-200 pb-2 gap-2">
                       <label className="block text-sm font-bold">3. รายการผ้า ({type})</label>
                       <input 
                         type="text" 
                         placeholder="🔍 พิมพ์ค้นหารุ่น หรือสี..." 
                         value={searchFabric}
                         onChange={e => setSearchFabric(e.target.value)}
-                        className="border px-3 py-1 rounded-full text-xs w-64 focus:outline-indigo-500 bg-white shadow-inner"
+                        className="border px-3 py-1 rounded-full text-xs w-full md:w-64 focus:outline-indigo-500 bg-white shadow-inner"
                       />
                     </div>
                     
@@ -446,9 +446,9 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
 
                     <div className="bg-white p-3 border rounded shadow-sm flex flex-col gap-2 mt-2">
                        <span className="text-sm font-bold text-indigo-700">เพิ่มรายการผ้าใหม่</span>
-                       <div className="flex gap-2 items-center">
-                          <input type="text" id="addFabName" placeholder="ชื่อรุ่น (เช่น LONERO)" className="border px-2 py-1.5 rounded text-sm w-1/3 focus:outline-indigo-500"/>
-                          <input type="text" id="addFabColor" placeholder="ชื่อสี (เช่น GREY)" className="border px-2 py-1.5 rounded text-sm w-1/3 focus:outline-indigo-500" onInput={(e) => e.target.value = e.target.value.toUpperCase()}/>
+                       <div className="flex flex-col md:flex-row gap-2 md:items-center">
+                          <input type="text" id="addFabName" placeholder="ชื่อรุ่น (เช่น LONERO)" className="border px-2 py-1.5 rounded text-sm w-full md:w-1/3 focus:outline-indigo-500"/>
+                          <input type="text" id="addFabColor" placeholder="ชื่อสี (เช่น GREY)" className="border px-2 py-1.5 rounded text-sm w-full md:w-1/3 focus:outline-indigo-500" onInput={(e) => e.target.value = e.target.value.toUpperCase()}/>
                           <label className={`bg-gray-100 border border-gray-300 text-gray-700 px-3 py-1.5 rounded text-sm flex-1 flex justify-center items-center ${isUploading ? 'opacity-50' : 'cursor-pointer hover:bg-gray-200'}`}>
                             {isUploading ? 'กำลังอัปโหลด...' : <><Upload size={14} className="mr-1"/> เลือกรูปภาพ</>}
                             <input type="file" accept={ACCEPTED_IMAGE_FORMATS} className="hidden" id="addFabImg" disabled={isUploading} onChange={(e) => {
@@ -472,7 +472,7 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
             {activeTab === 'styles' && (
               <div className="flex flex-col gap-4">
                  <h3 className="font-bold text-lg text-blue-700 border-b pb-2">จัดการรูปแบบผ้าม่าน และรูปตัวอย่าง</h3>
-                 <div className="grid grid-cols-2 gap-6">
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                    <div className="flex flex-col"><label className="font-bold text-sm mb-2">1. รายชื่อรูปแบบม่าน (บรรทัดละ 1 รายการ)</label><textarea rows="15" className="w-full border p-3 text-sm rounded focus:outline-blue-500 leading-relaxed" value={localText.styles} onChange={e => handleLocalText('styles', e.target.value)}></textarea></div>
                    <div className="flex flex-col"><label className="font-bold text-sm mb-2">2. อัปโหลดรูปตัวอย่างรูปแบบม่าน</label>
                      <div className="flex flex-col gap-2 overflow-y-auto pr-2 max-h-[400px]">
@@ -555,7 +555,7 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
             {activeTab === 'margins' && (
               <div className="flex flex-col gap-4">
                  <h3 className="font-bold text-lg text-blue-700 border-b pb-2">จัดการระยะชายม่าน และรูปตัวอย่าง</h3>
-                 <div className="grid grid-cols-2 gap-6">
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                    <div className="flex flex-col gap-4">
                      <div><label className="font-bold text-sm mb-1 block">ระยะด้านล่าง (บรรทัดละ 1 รายการ)</label><textarea rows="8" className="w-full border p-2 text-sm rounded focus:outline-blue-500" value={localText.margins_bottom} onChange={e => handleLocalText('margins_bottom', e.target.value)}></textarea></div>
                      <div><label className="font-bold text-sm mb-1 block">ระยะด้านบน / ซ้าย / ขวา (ใช้ร่วมกัน)</label><textarea rows="4" className="w-full border p-2 text-sm rounded focus:outline-blue-500" value={localText.margins_horizontal} onChange={e => handleLocalText('margins_horizontal', e.target.value)}></textarea></div>
@@ -580,13 +580,13 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
               <div className="flex flex-col gap-4">
                  <h3 className="font-bold text-lg text-blue-700 border-b pb-2">แก้ไขตัวเลือกอื่นๆ (พิมพ์ 1 รายการต่อบรรทัด)</h3>
                  {activeTab === 'tracks' && (
-                   <div className="grid grid-cols-2 gap-4">
+                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                      <div><label className="font-bold text-sm block mb-1">ชนิดรางม่าน</label><textarea rows="15" className="w-full border p-2 text-sm rounded" value={localText.tracks} onChange={e => handleLocalText('tracks', e.target.value)}></textarea></div>
                      <div><label className="font-bold text-sm block mb-1">ชนิดขาจับ</label><textarea rows="15" className="w-full border p-2 text-sm rounded" value={localText.brackets} onChange={e => handleLocalText('brackets', e.target.value)}></textarea></div>
                    </div>
                  )}
                  {activeTab === 'accessories' && (
-                   <div className="grid grid-cols-2 gap-4">
+                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                      <div><label className="font-bold text-sm block mb-1">อุปกรณ์เสริม</label><textarea rows="15" className="w-full border p-2 text-sm rounded" value={localText.accessories} onChange={e => handleLocalText('accessories', e.target.value)}></textarea></div>
                      <div><label className="font-bold text-sm block mb-1">การแขวนม่าน</label><textarea rows="15" className="w-full border p-2 text-sm rounded" value={localText.hangStyles} onChange={e => handleLocalText('hangStyles', e.target.value)}></textarea></div>
                    </div>
@@ -649,15 +649,15 @@ const UserManagementModal = ({ show, onClose, setDialog }) => {
           <button onClick={onClose} className="text-gray-500 hover:text-red-500"><X size={20}/></button>
         </div>
         <div className="p-4 flex flex-col gap-4">
-          <div className="flex gap-2 items-end bg-blue-50 p-3 rounded border border-blue-100">
+          <div className="flex flex-col md:flex-row gap-2 md:items-end bg-blue-50 p-3 rounded border border-blue-100">
             <div className="flex-1"><label className="text-xs font-bold block">ชื่อ-นามสกุล</label><input type="text" value={newN} onChange={e=>setNewN(e.target.value)} className="w-full border p-1.5 rounded text-sm"/></div>
-            <div className="flex-[0.8]"><label className="text-xs font-bold block">Username</label><input type="text" value={newU} onChange={e=>setNewU(e.target.value)} className="w-full border p-1.5 rounded text-sm"/></div>
-            <div className="flex-[0.8]"><label className="text-xs font-bold block">Password</label><input type="text" value={newP} onChange={e=>setNewP(e.target.value)} className="w-full border p-1.5 rounded text-sm"/></div>
+            <div className="flex-1 md:flex-[0.8]"><label className="text-xs font-bold block">Username</label><input type="text" value={newU} onChange={e=>setNewU(e.target.value)} className="w-full border p-1.5 rounded text-sm"/></div>
+            <div className="flex-1 md:flex-[0.8]"><label className="text-xs font-bold block">Password</label><input type="text" value={newP} onChange={e=>setNewP(e.target.value)} className="w-full border p-1.5 rounded text-sm"/></div>
             <div><label className="text-xs font-bold block">สิทธิ์</label><select value={newR} onChange={e=>setNewR(e.target.value)} className="w-full border p-1.5 rounded text-sm"><option value="user">User</option><option value="admin">Admin</option></select></div>
-            <button onClick={handleAdd} className="bg-green-600 text-white px-4 py-1.5 rounded text-sm font-bold shadow">เพิ่ม</button>
+            <button onClick={handleAdd} className="bg-green-600 text-white px-4 py-1.5 rounded text-sm font-bold shadow w-full md:w-auto mt-2 md:mt-0">เพิ่ม</button>
           </div>
-          <div className="border rounded overflow-hidden max-h-[300px] overflow-y-auto">
-            <table className="w-full text-sm text-left">
+          <div className="border rounded overflow-hidden max-h-[300px] overflow-x-auto overflow-y-auto">
+            <table className="w-full text-sm text-left min-w-[500px]">
               <thead className="bg-gray-800 text-white sticky top-0"><tr><th className="p-2">ชื่อพนักงาน</th><th className="p-2">Username</th><th className="p-2">Password</th><th className="p-2">Role</th><th className="p-2 text-center">ลบ</th></tr></thead>
               <tbody>
                 {accounts.map(acc => (
@@ -751,10 +751,12 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
 
   useEffect(() => {
     const handleGlobalPointMove = (e) => {
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
       if (pointDrag && containerRef.current) {
         const rect = containerRef.current.getBoundingClientRect();
-        const trueX = (e.clientX - rect.left - pan.x) / zoom;
-        const trueY = (e.clientY - rect.top - pan.y) / zoom;
+        const trueX = (clientX - rect.left - pan.x) / zoom;
+        const trueY = (clientY - rect.top - pan.y) / zoom;
         const xPct = Math.max(0, Math.min(100, (trueX / rect.width) * 100));
         const yPct = Math.max(0, Math.min(100, (trueY / rect.height) * 100));
 
@@ -772,20 +774,26 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
 
     if (pointDrag) {
       window.addEventListener('mousemove', handleGlobalPointMove);
+      window.addEventListener('touchmove', handleGlobalPointMove, { passive: false });
       window.addEventListener('mouseup', handleGlobalPointUp);
+      window.addEventListener('touchend', handleGlobalPointUp);
     }
     return () => {
       window.removeEventListener('mousemove', handleGlobalPointMove);
+      window.removeEventListener('touchmove', handleGlobalPointMove);
       window.removeEventListener('mouseup', handleGlobalPointUp);
+      window.removeEventListener('touchend', handleGlobalPointUp);
     }
   }, [pointDrag, pan, zoom, item.areas, item.id]);
 
   useEffect(() => {
     const handleGlobalPanelMove = (e) => {
       if (draggingPanel && wrapperRef.current) {
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
         const rect = wrapperRef.current.getBoundingClientRect();
-        let newX = e.clientX - rect.left - panelDragStart.x;
-        let newY = e.clientY - rect.top - panelDragStart.y;
+        let newX = clientX - rect.left - panelDragStart.x;
+        let newY = clientY - rect.top - panelDragStart.y;
         newX = Math.max(-500, Math.min(newX, window.innerWidth));
         newY = Math.max(-200, Math.min(newY, window.innerHeight));
         setPanelPos({ x: newX, y: newY });
@@ -795,20 +803,26 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
 
     if (draggingPanel) {
       window.addEventListener('mousemove', handleGlobalPanelMove);
+      window.addEventListener('touchmove', handleGlobalPanelMove, { passive: false });
       window.addEventListener('mouseup', handleGlobalPanelUp);
+      window.addEventListener('touchend', handleGlobalPanelUp);
     }
     return () => {
       window.removeEventListener('mousemove', handleGlobalPanelMove);
+      window.removeEventListener('touchmove', handleGlobalPanelMove);
       window.removeEventListener('mouseup', handleGlobalPanelUp);
+      window.removeEventListener('touchend', handleGlobalPanelUp);
     }
   }, [draggingPanel, panelDragStart]);
 
   const onPanelMouseDown = (e) => {
     e.stopPropagation();
     if (wrapperRef.current) {
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
       const rect = wrapperRef.current.getBoundingClientRect();
       setDraggingPanel(true);
-      setPanelDragStart({ x: e.clientX - rect.left - panelPos.x, y: e.clientY - rect.top - panelPos.y });
+      setPanelDragStart({ x: clientX - rect.left - panelPos.x, y: clientY - rect.top - panelPos.y });
     }
   };
 
@@ -845,14 +859,20 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
     setZoom(z => Math.max(0.5, Math.min(5, z + zoomFactor)));
   };
 
-  const handleMouseDown = (e) => { if (mode === 'pan') setIsPanning({ x: e.clientX - pan.x, y: e.clientY - pan.y }); };
+  const handleMouseDown = (e) => { 
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    if (mode === 'pan') setIsPanning({ x: clientX - pan.x, y: clientY - pan.y }); 
+  };
 
   const handleMouseMove = (e) => {
-    if (mode === 'pan' && isPanning) { setPan({ x: e.clientX - isPanning.x, y: e.clientY - isPanning.y }); return; }
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    if (mode === 'pan' && isPanning) { setPan({ x: clientX - isPanning.x, y: clientY - isPanning.y }); return; }
     if (containerRef.current) {
       const rect = containerRef.current.getBoundingClientRect();
-      const trueX = (e.clientX - rect.left - pan.x) / zoom;
-      const trueY = (e.clientY - rect.top - pan.y) / zoom;
+      const trueX = (clientX - rect.left - pan.x) / zoom;
+      const trueY = (clientY - rect.top - pan.y) / zoom;
       const xPct = Math.max(0, Math.min(100, (trueX / rect.width) * 100));
       const yPct = Math.max(0, Math.min(100, (trueY / rect.height) * 100));
       if (mode === 'draw' && activeAreaId && isDrawing && !pointDrag && !isPanning) setCursorPos({ x: xPct, y: yPct });
@@ -865,9 +885,15 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
 
   const handleContentClick = (e) => {
     if (mode !== 'draw' || !activeAreaId || !isDrawing || pointDrag || isPanning || draggingPanel) return;
+    
+    // Fallbacks for touch vs mouse event coordinates on click
+    const clientX = e.clientX || (e.touches && e.touches[0] ? e.touches[0].clientX : 0);
+    const clientY = e.clientY || (e.touches && e.touches[0] ? e.touches[0].clientY : 0);
+    if(!clientX && !clientY) return;
+
     const rect = containerRef.current.getBoundingClientRect();
-    const trueX = (e.clientX - rect.left - pan.x) / zoom;
-    const trueY = (e.clientY - rect.top - pan.y) / zoom;
+    const trueX = (clientX - rect.left - pan.x) / zoom;
+    const trueY = (clientY - rect.top - pan.y) / zoom;
     const xPct = Math.max(0, Math.min(100, (trueX / rect.width) * 100));
     const yPct = Math.max(0, Math.min(100, (trueY / rect.height) * 100));
 
@@ -909,11 +935,15 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
   const activeArea = item.areas.find(a => a.id === activeAreaId);
 
   return (
-    <div ref={wrapperRef} className="flex flex-col w-full h-full relative border-b border-gray-300 bg-white">
+    <div ref={wrapperRef} className="flex flex-col w-full h-full relative border-b md:border-b-0 print:border-b-0 border-gray-300 bg-white">
       <div 
         ref={containerRef}
         className={`relative w-full flex-grow overflow-hidden bg-gray-100 ${mode === 'pan' ? (isPanning ? 'cursor-grabbing' : 'cursor-grab') : (activeAreaId && isDrawing ? 'cursor-crosshair' : 'cursor-default')}`}
-        onWheel={handleWheel} onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} onMouseLeave={handleMouseLeave} onClick={handleContentClick}
+        onWheel={handleWheel} 
+        onMouseDown={handleMouseDown} onTouchStart={handleMouseDown}
+        onMouseMove={handleMouseMove} onTouchMove={handleMouseMove}
+        onMouseUp={handleMouseUp} onTouchEnd={handleMouseUp}
+        onMouseLeave={handleMouseLeave} onClick={handleContentClick}
       >
         {item.image ? (
           <div style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: '0 0' }} className="w-full h-full relative transition-transform duration-75 ease-out print:transform-none">
@@ -957,51 +987,69 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
                 const maskImgFallback = masks[action] || masks['ALL'] || Object.values(masks)[0];
                 let maskElements = [];
                 
+                const dist = (p1, p2) => Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
+                
                 if (maskImgFallback) {
                   if (maskType === 'height') {
-                    let clipPoly = area.points.map(p => `${p.x},${p.y}`).join(' ');
-                    let topAngle = 0;
-                    let cx = minX + w/2;
-                    let cy = minY + h/2;
-
-                    if (area.points.length === 4) {
+                    // --- แบบบิดภาพ (Perspective Warp) สำหรับม่านพับ มู่ลี่ ม่านม้วน ---
+                    let isQuad = area.points.length === 4;
+                    let TL, TR, BL, BR;
+                    if (isQuad) {
                       let sortedY = [...area.points].sort((a, b) => a.y - b.y);
                       let top2 = sortedY.slice(0, 2).sort((a, b) => a.x - b.x);
                       let bot2 = sortedY.slice(2, 4).sort((a, b) => a.x - b.x);
-                      let TL = top2[0], TR = top2[1], BL = bot2[0], BR = bot2[1];
-
-                      let dropL = { x: TL.x + (BL.x - TL.x) * mPct, y: TL.y + (BL.y - TL.y) * mPct };
-                      let dropR = { x: TR.x + (BR.x - TR.x) * mPct, y: TR.y + (BR.y - TR.y) * mPct };
-
-                      clipPoly = `${TL.x},${TL.y} ${TR.x},${TR.y} ${dropR.x},${dropR.y} ${dropL.x},${dropL.y}`;
-
-                      topAngle = Math.atan2(TR.y - TL.y, TR.x - TL.x) * (180/Math.PI);
-                      cx = (TL.x + TR.x) / 2;
-                      cy = (TL.y + TR.y) / 2;
+                      TL = top2[0]; TR = top2[1]; BL = bot2[0]; BR = bot2[1];
                     } else {
-                      let clipY = minY + h * mPct;
-                      clipPoly = `${minX},${minY} ${maxX},${minY} ${maxX},${clipY} ${minX},${clipY}`;
+                      TL = {x: minX, y: minY}; TR = {x: maxX, y: minY};
+                      BL = {x: minX, y: maxY}; BR = {x: maxX, y: maxY};
                     }
 
-                    const specificClipId = `${clipId}-height-act`;
+                    // หาจุดตัดด้านล่างให้ไหลลงมาขนานกับเส้นกรอบซ้ายและขวา
+                    let dropL = { x: TL.x + (BL.x - TL.x) * mPct, y: TL.y + (BL.y - TL.y) * mPct };
+                    let dropR = { x: TR.x + (BR.x - TR.x) * mPct, y: TR.y + (BR.y - TR.y) * mPct };
+
+                    let clipPoly = `${TL.x},${TL.y} ${TR.x},${TR.y} ${dropR.x},${dropR.y} ${dropL.x},${dropL.y}`;
+                    let clipIdAct = `${clipId}-height-act`;
+
+                    // Matrix Transformation Data
+                    let W = Math.max(0.1, dist(TL, TR));
+                    let H = Math.max(0.1, dist(TL, dropL));
+
+                    let u_x = (TR.x - TL.x) / W;
+                    let u_y = (TR.y - TL.y) / W;
+                    let v_x = (dropL.x - TL.x) / H;
+                    let v_y = (dropL.y - TL.y) / H;
+
+                    let D = u_x * v_y - u_y * v_x;
+                    let imgW = W;
+                    let imgH = H;
+
+                    if (Math.abs(D) > 1e-6) {
+                      let dx = dropR.x - TL.x;
+                      let dy = dropR.y - TL.y;
+                      let x_R = (dx * v_y - dy * v_x) / D;
+                      let y_R = (u_x * dy - u_y * dx) / D;
+                      imgW = Math.max(W, x_R);
+                      imgH = Math.max(H, y_R);
+                    }
 
                     maskElements.push(
-                      <g key="T">
-                        <clipPath id={specificClipId}>
-                          <polygon points={clipPoly} />
-                        </clipPath>
-                        <image 
-                          href={maskImgFallback} 
-                          x={minX - w*0.5} y={minY - h*0.5} 
-                          width={w * 2} height={h * 2} 
-                          preserveAspectRatio="none" 
-                          clipPath={`url(#${specificClipId})`} 
-                          opacity={maskOpacity}
-                          transform={area.points.length === 4 ? `rotate(${topAngle} ${cx} ${cy})` : undefined}
-                        />
-                      </g>
+                      <React.Fragment key="T">
+                        <clipPath id={clipIdAct}><polygon points={clipPoly} /></clipPath>
+                        <g clipPath={`url(#${clipIdAct})`}>
+                          <image 
+                            href={maskImgFallback} 
+                            x="0" y="0" 
+                            width={imgW} height={imgH} 
+                            preserveAspectRatio="none" 
+                            opacity={maskOpacity}
+                            transform={area.points.length === 4 ? `matrix(${u_x} ${u_y} ${v_x} ${v_y} ${TL.x} ${TL.y})` : `translate(${TL.x}, ${TL.y})`}
+                          />
+                        </g>
+                      </React.Fragment>
                     );
                   } else {
+                    // --- ผ้าม่านเดิม 100% ไม่บิดเบือน ---
                     if (action.includes('แยกกลาง')) {
                       const leftImg = masks['รวบซ้าย'] || maskImgFallback;
                       const rightImg = masks['รวบขวา'] || maskImgFallback;
@@ -1056,8 +1104,8 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
                       );
                     })}
                     {area.points.map((p, idx) => (
-                      <g key={idx} className="cursor-move" style={{ pointerEvents: 'auto' }} onMouseDown={(e) => handlePointMouseDown(e, area.id, idx)}>
-                        <circle cx={`${p.x}%`} cy={`${p.y}%`} r={4/zoom} fill="white" stroke={area.lineColor} strokeWidth={2/zoom} />
+                      <g key={idx} className="cursor-move" style={{ pointerEvents: 'auto' }}>
+                        <circle cx={`${p.x}%`} cy={`${p.y}%`} r={4/zoom} fill="white" stroke={area.lineColor} strokeWidth={2/zoom} onMouseDown={(e) => handlePointMouseDown(e, area.id, idx)} onTouchStart={(e) => handlePointMouseDown(e, area.id, idx)} />
                       </g>
                     ))}
                   </g>
@@ -1141,11 +1189,11 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
 
       {item.image && showControls && (
         <div 
-          style={{ position: 'fixed', left: panelPos.x, top: panelPos.y, width: '340px' }}
-          className="z-[99999] bg-white/95 backdrop-blur-sm border border-gray-300 rounded shadow-2xl flex flex-col no-print cursor-default transition-shadow"
-          onMouseDown={(e) => e.stopPropagation()} onWheel={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}
+          style={{ position: 'fixed', left: panelPos.x, top: panelPos.y }}
+          className="w-[90vw] sm:w-[340px] max-w-[340px] z-[99999] bg-white/95 backdrop-blur-sm border border-gray-300 rounded shadow-2xl flex flex-col no-print cursor-default transition-shadow"
+          onMouseDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()} onWheel={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}
         >
-          <div onMouseDown={onPanelMouseDown} className="bg-gray-800 text-white px-3 py-2 flex justify-between items-center cursor-move rounded-t">
+          <div onMouseDown={onPanelMouseDown} onTouchStart={onPanelMouseDown} className="bg-gray-800 text-white px-3 py-2 flex justify-between items-center cursor-move rounded-t">
             <span className="font-bold text-xs flex items-center"><Move size={14} className="mr-1"/> เครื่องมือพื้นที่ (ลากอิสระ)</span>
             <button onClick={() => setShowControls(false)} className="hover:text-red-400 text-gray-300"><X size={16}/></button>
           </div>
@@ -1677,17 +1725,17 @@ const App = () => {
                   <div className="absolute top-0 left-0 bg-gray-800 text-white px-4 py-1.5 text-sm font-bold z-10 rounded-br">รายการที่ {index + 1}</div>
                   <button onClick={() => removeItem(item.id)} className="no-print absolute -top-3 -right-3 bg-red-500 text-white rounded-full p-2 hover:bg-red-600 shadow z-20 transition-transform hover:scale-110"><Trash2 size={16} /></button>
 
-                  <div className="border border-gray-300 flex flex-col md:flex-row h-[750px] print:h-[185mm] mt-8 md:mt-0 bg-white relative overflow-hidden w-full box-border">
+                  <div className="border border-gray-300 flex flex-col md:flex-row print:flex-row h-auto md:h-[750px] print:h-[185mm] mt-8 md:mt-0 bg-white relative overflow-hidden w-full box-border">
                     
                     {/* Left Column 70% */}
-                    <div className="w-full md:w-[70%] border-r border-gray-300 flex flex-col bg-white h-full relative z-20">
+                    <div className="w-full md:w-[70%] print:w-[70%] h-[500px] md:h-full print:h-full border-b md:border-b-0 print:border-b-0 md:border-r print:border-r border-gray-300 flex flex-col bg-white relative z-20">
                       
                       <div className="h-[70%] w-full border-b border-gray-300 flex flex-col relative bg-gray-100 shrink-0">
                         <ImageAreaEditor item={item} appDB={appDB} handleItemChange={handleItemChange} setDialog={setDialog} idPrefix="print" />
                       </div>
                       
-                      <div className="h-[30%] w-full p-2 bg-gray-50 flex items-center">
-                        <div className="w-full h-full grid grid-cols-4 gap-3 print:gap-4">
+                      <div className="h-[30%] w-full p-2 bg-gray-50 flex items-center overflow-x-auto">
+                        <div className="w-full h-full min-w-[400px] md:min-w-0 grid grid-cols-4 gap-2 sm:gap-3 print:gap-4">
                           
                           <div className="flex flex-col items-center bg-white border border-gray-200 p-2 rounded shadow-sm h-full justify-between overflow-hidden">
                             <span className="text-[13px] font-bold text-gray-800 w-full text-center mb-2 shrink-0">รูปแบบม่าน</span>
@@ -1728,7 +1776,7 @@ const App = () => {
                     </div>
 
                     {/* Right Column 30% */}
-                    <div className="w-full md:w-[30%] text-xs flex flex-col bg-white overflow-y-auto print:overflow-hidden h-full relative z-10">
+                    <div className="w-full md:w-[30%] print:w-[30%] text-xs flex flex-col bg-white overflow-y-auto print:overflow-hidden h-[600px] md:h-full print:h-full relative z-10">
                       
                       <div className="bg-gray-800 text-white p-3 print:bg-white print:text-black print:p-3 print:pb-0 flex flex-col shrink-0">
                         <span className="mb-1 text-gray-300 print-hidden font-bold text-xs">ห้อง / ตำแหน่ง :</span>
@@ -1736,9 +1784,9 @@ const App = () => {
                         <div className="hidden print-block w-full text-[15px] font-bold leading-tight text-black whitespace-pre-wrap border-b border-gray-800 pb-2 mb-1">{item.roomPos || '-'}</div>
                       </div>
                       
-                      <div className="p-3 print:pt-1 flex-1 flex flex-col justify-between gap-4 print:gap-2 h-full">
+                      <div className="p-3 print:pt-1 flex-1 flex flex-col justify-start md:justify-between gap-4 print:gap-2 h-full">
                         
-                        <div className="border border-gray-300 p-2 rounded bg-gray-50">
+                        <div className="border border-gray-300 p-2 rounded bg-gray-50 no-print">
                           <div className="flex justify-between items-center mb-2 border-b border-gray-300 pb-1">
                             <span className="font-bold text-gray-800 text-[14px]">รายละเอียดวัสดุ/ผ้า</span>
                             <button onClick={()=>setShowCustomFabricModal(true)} className="no-print bg-indigo-100 hover:bg-indigo-200 text-indigo-700 border border-indigo-200 px-2 py-1 rounded text-[10px] font-bold shadow-sm transition-colors flex items-center"><Plus size={12} className="mr-0.5"/> ผ้านอกระบบ</button>

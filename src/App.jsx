@@ -1532,24 +1532,32 @@ const App = () => {
     }));
   };
 
-  // Helper Function for Smart Grouping Areas by their Fabric & Styles
+  // Helper Function for Smart Grouping Areas by Dimensions & Styles
   const getGroupedAreas = (item) => {
     const groups = {};
     item.areas.forEach((area, idx) => {
-      const s1 = area.styleMain1 || item.styleMain1 || '-';
+      const w = area.width || '-';
+      const h = area.height || '-';
+      const s1 = area.styleMain1 || item.styleMain1 || item.styleMain || '-';
       const a1 = area.styleAction1 || item.styleAction1 || item.styleAction || '-';
       const s2 = item.layers === 2 ? (area.styleMain2 || item.styleMain2 || '-') : '';
       const a2 = item.layers === 2 ? (area.styleAction2 || item.styleAction2 || '-') : '';
       
-      let fabStr = (area.fabrics || []).map(f => `${f.mainType}|${f.subType}|${f.name}|${f.color}`).join('||');
-      let key = `${fabStr}###${s1}|${a1}|${s2}|${a2}`;
+      let key = `${w}|${h}###${s1}|${a1}|${s2}|${a2}`;
       
       if (!groups[key]) {
-        groups[key] = { labelNums: [], sampleArea: area, s1, a1, s2, a2 };
+        groups[key] = { labelNums: [], w, h, s1, a1, s2, a2 };
       }
       groups[key].labelNums.push(idx + 1);
     });
     return Object.values(groups);
+  };
+
+  const formatBaanLabel = (nums, total) => {
+    if (nums.length === total && total > 1) return "ทุกบาน";
+    if (nums.length === 1) return `บานที่ ${nums[0]}`;
+    if (nums.length === 2) return `บานที่ ${nums[0]} และ ${nums[1]}`;
+    return `บานที่ ${nums.slice(0, -1).join(', ')} และ ${nums[nums.length - 1]}`;
   };
 
   if (view === 'dashboard') {
@@ -1895,23 +1903,16 @@ const App = () => {
 
                         {/* ---------------- PRINT VIEW (SMART GROUPING) ---------------- */}
                         <div className="hidden print-block w-full mt-2">
-                          <span className="font-bold text-gray-800 text-[14px] border-b border-gray-800 pb-1 mb-2 block">รายละเอียดวัสดุ และ รูปแบบม่าน</span>
+                          <span className="font-bold text-gray-800 text-[14px] border-b border-gray-800 pb-1 mb-2 block">รูปแบบและขนาดม่าน</span>
                           {getGroupedAreas(item).map((grp, gIdx) => (
                              <div key={gIdx} className="mb-3 pl-2 border-l-[3px] border-gray-800">
                                 <span className="font-bold text-black text-[13px] block mb-1">
-                                  {grp.labelNums.length === item.areas.length && item.areas.length > 1 ? "ทุกบานทั้งหมด" : `บานที่ ${grp.labelNums.join(', ')}`}
+                                  {formatBaanLabel(grp.labelNums, item.areas.length)} : <span className="font-normal">ก:{grp.w} ส:{grp.h}</span>
                                 </span>
-                                {grp.sampleArea.fabrics.map((fab, fIdx) => (
-                                   <div key={fIdx} className="text-[12px] leading-snug mb-1">
-                                     <span className="font-bold text-gray-900">{fab.mainType || '-'} {fab.subType ? `/ ${fab.subType}` : ''}</span>
-                                     <br/><span className="text-gray-800">{fab.name || '-'} {fab.color ? `/ ${fab.color}` : ''}</span>
-                                   </div>
-                                ))}
-                                {grp.sampleArea.fabrics.length === 0 && <span className="text-gray-400 italic text-[12px]">ไม่ระบุเนื้อผ้า</span>}
-                                <div className="text-[12px] leading-snug mt-1.5 border-t border-dashed border-gray-300 pt-1.5">
-                                   <span className="text-gray-800 block"><span className="font-bold">ชั้น 1:</span> {grp.s1} {grp.a1 !== '-' ? `(${grp.a1})` : ''}</span>
+                                <div className="text-[12px] leading-snug">
+                                   <span className="text-gray-800 block"><span className="font-bold">ชั้นที่ 1</span> {grp.s1} {grp.a1 !== '-' ? `/ ${grp.a1}` : ''}</span>
                                    {item.layers === 2 && (
-                                      <span className="text-gray-800 block mt-0.5"><span className="font-bold">ชั้น 2:</span> {grp.s2} {grp.a2 !== '-' ? `(${grp.a2})` : ''}</span>
+                                      <span className="text-gray-800 block mt-0.5"><span className="font-bold">ชั้นที่ 2</span> {grp.s2} {grp.a2 !== '-' ? `/ ${grp.a2}` : ''}</span>
                                    )}
                                 </div>
                              </div>

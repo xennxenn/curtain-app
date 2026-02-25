@@ -18,6 +18,11 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 const appId = "curtain-app-3d38a";
 
+// ---------------------------------------------------------
+// 🔑 ใส่ API KEY ของ IMGBB ตรงนี้ (รับฟรีที่ https://api.imgbb.com/)
+// ---------------------------------------------------------
+const IMGBB_API_KEY = "481987eaeb57d1f1ba1603abc6607023"; 
+
 // --- SVGs for default fallback ---
 const SVGS = {
   style_default: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect x="10" y="10" width="80" height="80" fill="%23eee" stroke="%23333" stroke-width="2"/><text x="50" y="55" font-size="12" text-anchor="middle" fill="%23999">ไม่มีรูป</text></svg>',
@@ -55,7 +60,7 @@ const AlertDialog = ({ dialog, onClose }) => {
   return (
     <div className="fixed inset-0 bg-black/60 z-[9999999] flex items-center justify-center p-4">
       <div className="bg-white rounded-lg p-6 max-w-sm w-full shadow-2xl flex flex-col items-center text-center">
-        <p className="text-gray-800 mb-6 font-bold text-sm">{dialog.message}</p>
+        <p className="text-gray-800 mb-6 font-bold text-sm whitespace-pre-wrap">{dialog.message}</p>
         <div className="flex gap-4 w-full justify-center">
           {dialog.type === 'confirm' && (
             <button onClick={onClose} className="px-6 py-2 bg-gray-200 hover:bg-gray-300 rounded font-bold text-gray-700 text-sm">ยกเลิก</button>
@@ -67,6 +72,34 @@ const AlertDialog = ({ dialog, onClose }) => {
       </div>
     </div>
   );
+};
+
+// --- Utility: ImgBB Upload Function ---
+const uploadImageToImgBB = async (base64Str) => {
+  if (!IMGBB_API_KEY || IMGBB_API_KEY === "ใส่_API_KEY_ของคุณที่นี่") {
+    alert("กรุณาใส่ IMGBB API KEY ในโค้ดบรรทัดที่ 18 ก่อนอัปโหลดรูปภาพ");
+    return null;
+  }
+  try {
+    const base64Data = base64Str.split(',')[1];
+    const formData = new FormData();
+    formData.append("image", base64Data);
+
+    const res = await fetch(`https://api.imgbb.com/1/upload?key=${IMGBB_API_KEY}`, {
+      method: "POST",
+      body: formData
+    });
+    const data = await res.json();
+    if (data.success) {
+      return data.data.url;
+    } else {
+      console.error("ImgBB Error:", data);
+      return null;
+    }
+  } catch (e) {
+    console.error("Upload failed", e);
+    return null;
+  }
 };
 
 // --- Utility: HEIC/HEIF Image Support & Compression ---
@@ -92,7 +125,7 @@ const processImageFile = async (file, maxWidth = 1200, quality = 0.8, setDialog)
       processFile = new File(blobArray, file.name.replace(/\.(heic|heif)$/i, '.jpg'), { type: "image/jpeg" });
     } catch (err) {
       console.error("HEIC conversion failed", err);
-      setDialog({ type: 'alert', message: "ไม่สามารถแปลงไฟล์ HEIC/HEIF ได้ กรุณาใช้ไฟล์ JPG/PNG" });
+      if(setDialog) setDialog({ type: 'alert', message: "ไม่สามารถแปลงไฟล์ HEIC/HEIF ได้ กรุณาใช้ไฟล์ JPG/PNG" });
       return null;
     }
   }
@@ -112,7 +145,7 @@ const processImageFile = async (file, maxWidth = 1200, quality = 0.8, setDialog)
         resolve(canvas.toDataURL('image/webp', quality)); 
       };
       img.onerror = () => {
-        setDialog({ type: 'alert', message: "ไฟล์รูปภาพไม่รองรับ หรือมีปัญหา" });
+        if(setDialog) setDialog({ type: 'alert', message: "ไฟล์รูปภาพไม่รองรับ หรือมีปัญหา" });
         resolve(null);
       };
       img.src = e.target.result;
@@ -125,6 +158,8 @@ const processImageFile = async (file, maxWidth = 1200, quality = 0.8, setDialog)
 // --- Component: Custom Project Fabric Modal ---
 const CustomFabricModal = ({ show, onClose, onAdd, setDialog }) => {
   if (!show) return null;
+  const [loading, setLoading] = useState(false);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     const f = document.getElementById('customFabImg').files[0];
@@ -135,14 +170,22 @@ const CustomFabricModal = ({ show, onClose, onAdd, setDialog }) => {
       return setDialog({ type: 'alert', message: 'กรุณากรอกข้อมูลและเลือกรูปภาพให้ครบถ้วน' });
     }
     
-    const compressed = await processImageFile(f, 600, 0.8, setDialog);
-    if (!compressed) return; 
-    onAdd({ id: Date.now().toString(), mainType: 'ผ้านอกระบบ (เฉพาะงานนี้)', subType, name, color, image: compressed });
-    onClose();
+    setLoading(true);
+    const compressed = await processImageFile(f, 400, 0.7, setDialog);
+    if (compressed) {
+      const imgUrl = await uploadImageToImgBB(compressed);
+      if(imgUrl) {
+        onAdd({ id: Date.now().toString(), mainType: 'ผ้านอกระบบ (เฉพาะงานนี้)', subType, name, color, image: imgUrl });
+        onClose();
+      } else {
+        setDialog({ type: 'alert', message: 'อัปโหลดรูปภาพไม่สำเร็จ กรุณาลองใหม่' });
+      }
+    }
+    setLoading(false);
   };
 
   return (
-    <div className="fixed inset-0 bg-black/60 z-[100000] flex items-center justify-center p-4">
+    <div className="fixed inset-0 bg-black/60 z-[1000000] flex items-center justify-center p-4">
       <div className="bg-white rounded-lg shadow-xl w-full max-w-md flex flex-col overflow-hidden">
         <div className="flex justify-between items-center p-4 border-b bg-indigo-50">
           <h2 className="text-lg font-bold flex items-center text-indigo-800"><ImagePlus className="mr-2"/> เพิ่มผ้านอกระบบ (เฉพาะงานนี้)</h2>
@@ -151,15 +194,23 @@ const CustomFabricModal = ({ show, onClose, onAdd, setDialog }) => {
         <form onSubmit={handleSubmit} className="p-4 flex flex-col gap-3">
           <div><label className="text-xs font-bold block mb-1">ประเภทม่าน (เช่น ผ้าม่านทึบ, ม่านโปร่ง, มู่ลี่)</label><input id="customFabSubType" type="text" className="w-full border p-2 rounded text-sm focus:outline-indigo-500" placeholder="ผ้าม่านทึบ พิเศษ"/></div>
           <div><label className="text-xs font-bold block mb-1">รุ่น / ชื่อผ้า</label><input id="customFabName" type="text" className="w-full border p-2 rounded text-sm focus:outline-indigo-500" placeholder="เช่น รุ่น A"/></div>
-          <div><label className="text-xs font-bold block mb-1">สี</label><input id="customFabColor" type="text" className="w-full border p-2 rounded text-sm focus:outline-indigo-500" placeholder="เช่น สีเทาเข้ม"/></div>
+          <div><label className="text-xs font-bold block mb-1">สี</label><input id="customFabColor" type="text" className="w-full border p-2 rounded text-sm focus:outline-indigo-500" placeholder="เช่น สีเทาเข้ม" onInput={(e) => e.target.value = e.target.value.toUpperCase()}/></div>
           <div>
             <label className="text-xs font-bold block mb-1">รูปตัวอย่างเนื้อผ้า</label>
-            <label className="bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-700 px-3 py-2 rounded text-sm cursor-pointer w-full flex justify-center items-center font-bold">
-              <Upload size={16} className="mr-2"/> เลือกรูปภาพ
-              <input type="file" accept={ACCEPTED_IMAGE_FORMATS} className="hidden" id="customFabImg"/>
+            <label className={`bg-gray-100 border border-gray-300 text-gray-700 px-3 py-2 rounded text-sm flex justify-center items-center font-bold ${loading ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-200 cursor-pointer'}`}>
+              <Upload size={16} className="mr-2"/> {loading ? 'กำลังอัปโหลด...' : 'เลือกรูปภาพ'}
+              <input type="file" accept={ACCEPTED_IMAGE_FORMATS} className="hidden" id="customFabImg" disabled={loading} onChange={(e) => {
+                const file = e.target.files[0];
+                if (file) {
+                  const colorInput = document.getElementById('customFabColor');
+                  if (colorInput && !colorInput.value.trim()) {
+                    colorInput.value = file.name.replace(/\.[^/.]+$/, "").toUpperCase();
+                  }
+                }
+              }}/>
             </label>
           </div>
-          <button type="submit" className="bg-indigo-600 text-white font-bold py-2 rounded mt-2 shadow hover:bg-indigo-700">บันทึกผ้าเข้าใบงาน</button>
+          <button type="submit" disabled={loading} className={`bg-indigo-600 text-white font-bold py-2 rounded mt-2 shadow ${loading ? 'opacity-50' : 'hover:bg-indigo-700'}`}>{loading ? 'โปรดรอ...' : 'บันทึกผ้าเข้าใบงาน'}</button>
         </form>
       </div>
     </div>
@@ -173,6 +224,7 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
   const [cat, setCat] = useState('ผ้าม่าน');
   const [type, setType] = useState('');
   const [localText, setLocalText] = useState({});
+  const [isUploading, setIsUploading] = useState(false);
 
   useEffect(() => {
     setLocalText({
@@ -210,16 +262,22 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
        });
     }
     setAppDB(cleanedDB);
-    localStorage.setItem('backupAppDB', JSON.stringify(cleanedDB)); // Backup locally
-    await saveAppDB(cleanedDB); // Save directly to Firebase AppDB path
+    localStorage.setItem('backupAppDB', JSON.stringify(cleanedDB)); 
+    await saveAppDB(cleanedDB); 
     setShowDBSettings(false);
   };
 
   const handleImageUpload = (callback) => async (e) => {
     const file = e.target.files[0];
     if (file) {
-      const compressedDataUrl = await processImageFile(file, 800, 0.8, setDialog);
-      if(compressedDataUrl) callback(compressedDataUrl);
+      setIsUploading(true);
+      const compressed = await processImageFile(file, 600, 0.7, setDialog);
+      if(compressed) {
+        const url = await uploadImageToImgBB(compressed);
+        if(url) callback(url);
+        else setDialog({ type: 'alert', message: 'อัปโหลดล้มเหลว กรุณาลองใหม่' });
+      }
+      setIsUploading(false);
     }
   };
 
@@ -261,17 +319,24 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
     const c = document.getElementById('addFabColor').value;
     const f = document.getElementById('addFabImg').files[0];
     if(n && c && f) {
-      const compressedImg = await processImageFile(f, 600, 0.8, setDialog);
-      if(!compressedImg) return;
-      
-      const newDB = JSON.parse(JSON.stringify(appDB));
-      if(!newDB.curtainTypes[cat][type]) newDB.curtainTypes[cat][type] = {};
-      if(!newDB.curtainTypes[cat][type][n]) newDB.curtainTypes[cat][type][n] = {};
-      newDB.curtainTypes[cat][type][n][c] = compressedImg;
-      setAppDB(newDB);
-      document.getElementById('addFabName').value=''; 
-      document.getElementById('addFabColor').value=''; 
-      document.getElementById('addFabImg').value='';
+      setIsUploading(true);
+      const compressedImg = await processImageFile(f, 400, 0.7, setDialog);
+      if(compressedImg) {
+        const url = await uploadImageToImgBB(compressedImg);
+        if(url) {
+          const newDB = JSON.parse(JSON.stringify(appDB));
+          if(!newDB.curtainTypes[cat][type]) newDB.curtainTypes[cat][type] = {};
+          if(!newDB.curtainTypes[cat][type][n]) newDB.curtainTypes[cat][type][n] = {};
+          newDB.curtainTypes[cat][type][n][c] = url;
+          setAppDB(newDB);
+          document.getElementById('addFabName').value=''; 
+          document.getElementById('addFabColor').value=''; 
+          document.getElementById('addFabImg').value='';
+        } else {
+          setDialog({ type: 'alert', message: "อัปโหลดรูปล้มเหลว" });
+        }
+      }
+      setIsUploading(false);
     } else { 
       setDialog({ type: 'alert', message: "กรุณาใส่ข้อมูลและเลือกรูปภาพให้ครบ" }); 
     }
@@ -300,7 +365,7 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
           <div className="w-3/4 p-4 overflow-y-auto bg-white">
             {activeTab === 'fabrics' && (
               <div className="flex flex-col gap-4">
-                <h3 className="font-bold text-lg text-blue-700 border-b pb-2">จัดการเนื้อผ้าและม่าน (ระบุ ชื่อ/สี พร้อมรูปตัวอย่าง)</h3>
+                <h3 className="font-bold text-lg text-blue-700 border-b pb-2">จัดการเนื้อผ้าและม่าน</h3>
                 <div>
                   <label className="block text-sm font-bold mb-2">1. หมวดหมู่หลัก</label>
                   <div className="flex gap-2">
@@ -334,10 +399,10 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
                     <label className="block text-sm font-bold">3. รายการผ้า ({type})</label>
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                       {Object.entries((appDB.curtainTypes[cat] && appDB.curtainTypes[cat][type]) || {}).flatMap(([itemName, colors]) => 
-                        Object.entries(colors).map(([itemColor, imgBase64]) => (
+                        Object.entries(colors).map(([itemColor, imgUrl]) => (
                           <div key={`${itemName}-${itemColor}`} className="bg-white border p-2 rounded flex gap-2 relative group shadow-sm">
                             <button onClick={()=>deleteFabricItem(type, itemName, itemColor)} className="absolute top-1 right-1 bg-red-100 text-red-600 p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={12}/></button>
-                            <img src={imgBase64} alt="" className="w-12 h-12 object-cover rounded border"/>
+                            <img src={imgUrl} alt="" className="w-12 h-12 object-cover rounded border"/>
                             <div className="flex flex-col justify-center flex-1 overflow-hidden">
                               <span className="text-xs font-bold truncate">{itemName}</span>
                               <span className="text-[10px] text-gray-500 truncate">{itemColor}</span>
@@ -351,13 +416,21 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
                        <span className="text-sm font-bold text-indigo-700">เพิ่มรายการผ้าใหม่</span>
                        <div className="flex gap-2 items-center">
                           <input type="text" id="addFabName" placeholder="ชื่อรุ่น (เช่น LONERO)" className="border px-2 py-1.5 rounded text-sm w-1/3 focus:outline-indigo-500"/>
-                          <input type="text" id="addFabColor" placeholder="ชื่อสี (เช่น GREY)" className="border px-2 py-1.5 rounded text-sm w-1/3 focus:outline-indigo-500"/>
-                          <label className="bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-700 px-3 py-1.5 rounded text-sm cursor-pointer flex-1 flex justify-center items-center">
-                            <Upload size={14} className="mr-1"/> เลือกรูปภาพ
-                            <input type="file" accept={ACCEPTED_IMAGE_FORMATS} className="hidden" id="addFabImg"/>
+                          <input type="text" id="addFabColor" placeholder="ชื่อสี (เช่น GREY)" className="border px-2 py-1.5 rounded text-sm w-1/3 focus:outline-indigo-500" onInput={(e) => e.target.value = e.target.value.toUpperCase()}/>
+                          <label className={`bg-gray-100 border border-gray-300 text-gray-700 px-3 py-1.5 rounded text-sm flex-1 flex justify-center items-center ${isUploading ? 'opacity-50' : 'cursor-pointer hover:bg-gray-200'}`}>
+                            {isUploading ? 'กำลังอัปโหลด...' : <><Upload size={14} className="mr-1"/> เลือกรูปภาพ</>}
+                            <input type="file" accept={ACCEPTED_IMAGE_FORMATS} className="hidden" id="addFabImg" disabled={isUploading} onChange={(e) => {
+                              const file = e.target.files[0];
+                              if (file) {
+                                const colorInput = document.getElementById('addFabColor');
+                                if (colorInput && !colorInput.value.trim()) {
+                                  colorInput.value = file.name.replace(/\.[^/.]+$/, "").toUpperCase();
+                                }
+                              }
+                            }}/>
                           </label>
                        </div>
-                       <button onClick={addFabricItem} className="bg-indigo-600 text-white py-1.5 rounded text-sm font-bold hover:bg-indigo-700 mt-1">บันทึกรายการผ้า</button>
+                       <button onClick={addFabricItem} disabled={isUploading} className={`bg-indigo-600 text-white py-1.5 rounded text-sm font-bold mt-1 ${isUploading ? 'opacity-50' : 'hover:bg-indigo-700'}`}>บันทึกรายการผ้า</button>
                     </div>
                   </div>
                 )}
@@ -375,7 +448,9 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
                          <div key={styleName} className="flex items-center justify-between border p-2 rounded bg-gray-50">
                            <span className="text-sm font-bold flex-1 truncate mr-2">{styleName}</span>
                            {appDB.styleImages?.[styleName] ? <img src={appDB.styleImages[styleName]} className="w-10 h-10 object-cover bg-white border mr-2 rounded"/> : <div className="w-10 h-10 bg-gray-200 border border-dashed flex items-center justify-center mr-2 rounded text-[8px] text-gray-500">ไม่มีรูป</div>}
-                           <label className="bg-blue-100 hover:bg-blue-200 text-blue-700 px-2 py-1 rounded text-xs cursor-pointer">อัปโหลด<input type="file" accept={ACCEPTED_IMAGE_FORMATS} className="hidden" onChange={handleImageUpload((base64) => { setAppDB(prev => ({ ...prev, styleImages: { ...(prev.styleImages || {}), [styleName]: base64 } })); })}/></label>
+                           <label className="bg-blue-100 hover:bg-blue-200 text-blue-700 px-2 py-1 rounded text-xs cursor-pointer">อัปโหลด
+                            <input type="file" accept={ACCEPTED_IMAGE_FORMATS} className="hidden" onChange={handleImageUpload((url) => { setAppDB(prev => ({ ...prev, styleImages: { ...(prev.styleImages || {}), [styleName]: url } })); })}/>
+                           </label>
                          </div>
                        ))}
                      </div>
@@ -400,16 +475,16 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
                           <option value="ALL">- ทุกการเปิด/ปิด (สำหรับม่านม้วน, พับ, มู่ลี่) -</option>
                           {(appDB.actions || []).map(s=><option key={s} value={s}>{s}</option>)}
                         </select>
-                        <label className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded text-sm font-bold text-center cursor-pointer shadow-sm transition-colors mt-2">
-                          <Upload size={16} className="inline mr-2"/> อัปโหลดรูป Mask
-                          <input type="file" accept={ACCEPTED_IMAGE_FORMATS} className="hidden" onChange={handleImageUpload((base64) => {
+                        <label className={`bg-blue-600 text-white px-4 py-2.5 rounded text-sm font-bold text-center shadow-sm transition-colors mt-2 ${isUploading ? 'opacity-50' : 'hover:bg-blue-700 cursor-pointer'}`}>
+                          <Upload size={16} className="inline mr-2"/> {isUploading ? 'กำลังอัปโหลด...' : 'อัปโหลดรูป Mask'}
+                          <input type="file" accept={ACCEPTED_IMAGE_FORMATS} className="hidden" disabled={isUploading} onChange={handleImageUpload((url) => {
                             const st = document.getElementById('maskStyle').value;
                             const ac = document.getElementById('maskAction').value || 'ALL';
                             if(st && ac) {
                               const newDB = JSON.parse(JSON.stringify(appDB));
                               if(!newDB.masks) newDB.masks = {};
                               if(!newDB.masks[st]) newDB.masks[st] = {};
-                              newDB.masks[st][ac] = base64;
+                              newDB.masks[st][ac] = url;
                               setAppDB(newDB);
                             } else {
                               setDialog({ type: 'alert', message: "กรุณาเลือกรูปแบบและลักษณะการเปิดปิดก่อนอัปโหลด" });
@@ -459,7 +534,9 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
                          <div key={marginName} className="flex items-center justify-between border p-2 rounded bg-gray-50">
                            <span className="text-sm font-bold flex-1 truncate mr-2">{marginName}</span>
                            {appDB.marginImages?.[marginName] ? <img src={appDB.marginImages[marginName]} className="w-10 h-10 object-cover bg-white border mr-2 rounded"/> : <div className="w-10 h-10 bg-gray-200 border border-dashed flex items-center justify-center mr-2 rounded text-[8px] text-gray-500">ไม่มีรูป</div>}
-                           <label className="bg-blue-100 hover:bg-blue-200 text-blue-700 px-2 py-1 rounded text-xs cursor-pointer">อัปโหลด<input type="file" accept={ACCEPTED_IMAGE_FORMATS} className="hidden" onChange={handleImageUpload((base64) => { setAppDB(prev => ({ ...prev, marginImages: { ...(prev.marginImages || {}), [marginName]: base64 } })); })}/></label>
+                           <label className="bg-blue-100 hover:bg-blue-200 text-blue-700 px-2 py-1 rounded text-xs cursor-pointer">อัปโหลด
+                            <input type="file" accept={ACCEPTED_IMAGE_FORMATS} className="hidden" onChange={handleImageUpload((url) => { setAppDB(prev => ({ ...prev, marginImages: { ...(prev.marginImages || {}), [marginName]: url } })); })}/>
+                           </label>
                          </div>
                        ))}
                      </div>
@@ -635,6 +712,7 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
   const [panelPos, setPanelPos] = useState({ x: 10, y: 10 });
   const [draggingPanel, setDraggingPanel] = useState(false);
   const [panelDragStart, setPanelDragStart] = useState({ x: 0, y: 0 });
+  const [isUploadingObj, setIsUploadingObj] = useState(false);
 
   const containerRef = useRef(null);
   const wrapperRef = useRef(null);
@@ -785,8 +863,14 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
   const handleImageUpload = async (e) => {
     const file = e.target.files[0];
     if (file) {
+      setIsUploadingObj(true);
       const compressedDataUrl = await processImageFile(file, 1200, 0.8, setDialog);
-      if(compressedDataUrl) handleItemChange(item.id, 'image', compressedDataUrl);
+      if(compressedDataUrl) {
+         const url = await uploadImageToImgBB(compressedDataUrl);
+         if (url) handleItemChange(item.id, 'image', url);
+         else setDialog({ type: 'alert', message: 'อัปโหลดรูปล้มเหลว' });
+      }
+      setIsUploadingObj(false);
     }
   };
 
@@ -803,9 +887,9 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
           <div style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: '0 0' }} className="w-full h-full relative transition-transform duration-75 ease-out print:transform-none">
             <img src={item.image} alt="Window view" className="w-full h-full object-cover pointer-events-none" />
             
-            <label className="absolute top-2 left-2 bg-white/90 border border-gray-300 text-gray-700 px-3 py-1.5 rounded shadow-sm hover:bg-white no-print z-40 cursor-pointer flex items-center text-xs font-bold transition-colors" title="เปลี่ยนเฉพาะรูปพื้นหลัง">
-              <Upload size={14} className="mr-1.5"/> เปลี่ยนรูปหน้างาน
-              <input type="file" accept={ACCEPTED_IMAGE_FORMATS} className="hidden" onChange={handleImageUpload} />
+            <label className={`absolute top-2 left-2 bg-white/90 border border-gray-300 text-gray-700 px-3 py-1.5 rounded shadow-sm hover:bg-white no-print z-40 flex items-center text-xs font-bold transition-colors ${isUploadingObj ? 'opacity-50 cursor-wait' : 'cursor-pointer'}`} title="เปลี่ยนเฉพาะรูปพื้นหลัง">
+              <Upload size={14} className="mr-1.5"/> {isUploadingObj ? 'กำลังอัปโหลด...' : 'เปลี่ยนรูปหน้างาน'}
+              <input type="file" accept={ACCEPTED_IMAGE_FORMATS} className="hidden" disabled={isUploadingObj} onChange={handleImageUpload} />
             </label>
 
             <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none">
@@ -845,6 +929,7 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
                 
                 if (maskImgFallback) {
                   if (maskType === 'height') {
+                    // --- แบบบิดภาพ (Perspective Warp) สำหรับม่านพับ มู่ลี่ ม่านม้วน ---
                     let isQuad = area.points.length === 4;
                     let TL, TR, BL, BR;
                     if (isQuad) {
@@ -857,12 +942,14 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
                       BL = {x: minX, y: maxY}; BR = {x: maxX, y: maxY};
                     }
 
+                    // หาจุดตัดด้านล่างให้ไหลลงมาขนานกับเส้นกรอบซ้ายและขวา
                     let dropL = { x: TL.x + (BL.x - TL.x) * mPct, y: TL.y + (BL.y - TL.y) * mPct };
                     let dropR = { x: TR.x + (BR.x - TR.x) * mPct, y: TR.y + (BR.y - TR.y) * mPct };
 
                     let clipPoly = `${TL.x},${TL.y} ${TR.x},${TR.y} ${dropR.x},${dropR.y} ${dropL.x},${dropL.y}`;
                     let clipIdAct = `${clipId}-height-act`;
 
+                    // Matrix Transformation Data
                     let W = Math.max(0.1, dist(TL, TR));
                     let H = Math.max(0.1, dist(TL, dropL));
 
@@ -894,12 +981,13 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
                             width={imgW} height={imgH} 
                             preserveAspectRatio="none" 
                             opacity={maskOpacity}
-                            transform={`matrix(${u_x} ${u_y} ${v_x} ${v_y} ${TL.x} ${TL.y})`}
+                            transform={area.points.length === 4 ? `matrix(${u_x} ${u_y} ${v_x} ${v_y} ${TL.x} ${TL.y})` : `translate(${TL.x}, ${TL.y})`}
                           />
                         </g>
                       </React.Fragment>
                     );
                   } else {
+                    // --- ผ้าม่านเดิม 100% ไม่บิดเบือน ---
                     if (action.includes('แยกกลาง')) {
                       const leftImg = masks['รวบซ้าย'] || maskImgFallback;
                       const rightImg = masks['รวบขวา'] || maskImgFallback;
@@ -1029,9 +1117,9 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
           </div>
         ) : (
           <div className="absolute inset-0 flex items-center justify-center opacity-100 bg-gray-50 no-print">
-            <label className="cursor-pointer bg-white text-blue-600 border border-blue-600 px-6 py-3 rounded-lg shadow-sm flex items-center hover:bg-blue-50 transition-colors font-bold">
-              <Upload size={20} className="mr-2" /> อัปโหลดรูปหน้างาน
-              <input type="file" accept={ACCEPTED_IMAGE_FORMATS} className="hidden" onChange={handleImageUpload} />
+            <label className={`cursor-pointer bg-white text-blue-600 border border-blue-600 px-6 py-3 rounded-lg shadow-sm flex items-center transition-colors font-bold ${isUploadingObj ? 'opacity-50 cursor-wait' : 'hover:bg-blue-50'}`}>
+              <Upload size={20} className="mr-2" /> {isUploadingObj ? 'กำลังอัปโหลด...' : 'อัปโหลดรูปหน้างาน'}
+              <input type="file" accept={ACCEPTED_IMAGE_FORMATS} className="hidden" disabled={isUploadingObj} onChange={handleImageUpload} />
             </label>
           </div>
         )}
@@ -1231,9 +1319,15 @@ const App = () => {
   const saveAppDBToFirebase = async (newDB) => {
     try {
       await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'appDB'), newDB);
+      return true;
     } catch (err) {
       console.error("Failed to save appDB", err);
-      setDialog({ type: 'alert', message: 'เกิดข้อผิดพลาดในการบันทึกฐานข้อมูล' });
+      if (err.code === 'resource-exhausted' || err.message.includes('large') || err.message.includes('Limit')) {
+          setDialog({ type: 'alert', message: 'เกิดข้อผิดพลาด: ข้อมูลรูปภาพในฐานข้อมูลเต็มความจุ (เกิน 1MB) กรุณาลบรูปที่ไม่จำเป็นออกแล้วลองบันทึกใหม่' });
+      } else {
+          setDialog({ type: 'alert', message: 'เกิดข้อผิดพลาดในการบันทึกฐานข้อมูล: ' + err.message });
+      }
+      return false;
     }
   };
 
@@ -1640,7 +1734,7 @@ const App = () => {
                           </div>
                           {item.areas.length === 0 && <span className="text-gray-400 italic no-print text-xs">เพิ่มพื้นที่บนรูปหน้างานก่อน</span>}
                           {item.areas.map((area, aIdx) => (
-                            <div key={area.id} className="mb-3 border-l-[3px] border-blue-500 print:border-gray-800 pl-2">
+                            <div className="mb-3 border-l-[3px] border-blue-500 print:border-gray-800 pl-2" key={area.id}>
                               <div className="font-bold text-blue-800 print:text-black mb-1.5 flex justify-between items-center bg-blue-50 print:bg-gray-200 px-1.5 py-1 rounded text-[12px]">
                                 <span>บานที่ {aIdx + 1} <span className="font-normal">(ก:{area.width||'-'} ส:{area.height||'-'})</span></span>
                                 <div className="flex items-center gap-2">

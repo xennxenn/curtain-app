@@ -5,7 +5,6 @@ import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged }
 import { getFirestore, doc, setDoc, getDoc, collection, getDocs, deleteDoc, onSnapshot } from 'firebase/firestore';
 
 // --- Firebase Initialization (Online Sync) ---
-// เชื่อมต่อตรงเข้า Firebase ของจริง ข้อมูลจะออนไลน์และซิงค์ตรงกันทุกเครื่อง
 const firebaseConfig = {
   apiKey: "AIzaSyCRM9SXoU2IWM0olulbyfAF2oeeGyJsygY",
   authDomain: "curtain-app-3d38a.firebaseapp.com",
@@ -17,8 +16,6 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
-
-// ชี้เป้าหมายไปที่ Project ID ของจริง
 const appId = "curtain-app-3d38a";
 
 // --- SVGs for default fallback ---

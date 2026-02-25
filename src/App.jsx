@@ -832,7 +832,8 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
       id: newAreaId, points: [], width: '', height: '', 
       lineColor: '#EF4444', lineWidth: 2, fabrics: [], layers: 2,
       labelColor: '#EF4444', labelSize: 14, wPos: 'top', hPos: 'right',
-      maskType: '', maskPct: 20, maskOpacity: 87
+      maskType: '', maskPct: 20, maskOpacity: 87,
+      styleMain1: '', styleAction1: '', styleMain2: '', styleAction2: ''
     };
     handleItemChange(item.id, 'areas', [...item.areas, newArea]);
     setActiveAreaId(newAreaId);
@@ -976,13 +977,13 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
                 const h = maxY - minY;
                 const clipId = `clip-${idPrefix}-${item.id}-${area.id}`;
                 
-                const styleMain1 = item.styleMain1 || item.styleMain || '';
+                const styleMain1 = area.styleMain1 || item.styleMain1 || item.styleMain || '';
                 const autoMaskType = styleMain1.match(/ม้วน|พับ|มู่ลี่/) ? 'height' : 'width';
                 const maskType = area.maskType || autoMaskType;
                 const mPct = (area.maskPct || 20) / 100;
                 const maskOpacity = (area.maskOpacity ?? 87) / 100;
                 
-                const action = item.styleAction1 || item.styleAction || '';
+                const action = area.styleAction1 || item.styleAction1 || item.styleAction || '';
                 const masks = appDB.masks?.[styleMain1] || {};
                 const maskImgFallback = masks[action] || masks['ALL'] || Object.values(masks)[0];
                 let maskElements = [];
@@ -1211,7 +1212,7 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
 
             {item.areas.map((area, idx) => {
               const isActive = activeAreaId === area.id;
-              const styleMain1 = item.styleMain1 || item.styleMain || '';
+              const styleMain1 = area.styleMain1 || item.styleMain1 || item.styleMain || '';
               const autoMaskType = styleMain1.match(/ม้วน|พับ|มู่ลี่/) ? 'height' : 'width';
               return (
                 <div key={area.id} className={`flex flex-col gap-2 border p-2.5 rounded bg-white transition-all ${isActive ? 'border-blue-400 ring-2 ring-blue-100 shadow-md' : 'border-gray-200'}`}>
@@ -1467,7 +1468,7 @@ const App = () => {
   const addItem = () => {
     setItems(prev => [...prev, {
       id: Date.now().toString(), image: null, layers: 2,
-      areas: [{ id: Date.now().toString() + '_a1', points: [], width: '', height: '', lineColor: '#EF4444', lineWidth: 2, fabrics: [], labelColor: '#EF4444', labelSize: 14, wPos: 'top', hPos: 'right', maskPct: 20, maskOpacity: 87, maskType: '' }],
+      areas: [{ id: Date.now().toString() + '_a1', points: [], width: '', height: '', lineColor: '#EF4444', lineWidth: 2, fabrics: [], labelColor: '#EF4444', labelSize: 14, wPos: 'top', hPos: 'right', maskPct: 20, maskOpacity: 87, maskType: '', styleMain1: '', styleAction1: '', styleMain2: '', styleAction2: '' }],
       roomPos: '', styleMain1: '', styleAction1: '', styleMain2: '', styleAction2: '', tracks: [], bracket: '', accessories: [], hangStyle: '',
       marginLeft: '', customMarginLeft: '', marginRight: '', customMarginRight: '', marginTop: '', customMarginTop: '', marginBottom: '', customMarginBottom: '', note: ''
     }]);
@@ -1529,6 +1530,26 @@ const App = () => {
       }
       return item;
     }));
+  };
+
+  // Helper Function for Smart Grouping Areas by their Fabric & Styles
+  const getGroupedAreas = (item) => {
+    const groups = {};
+    item.areas.forEach((area, idx) => {
+      const s1 = area.styleMain1 || item.styleMain1 || '-';
+      const a1 = area.styleAction1 || item.styleAction1 || item.styleAction || '-';
+      const s2 = item.layers === 2 ? (area.styleMain2 || item.styleMain2 || '-') : '';
+      const a2 = item.layers === 2 ? (area.styleAction2 || item.styleAction2 || '-') : '';
+      
+      let fabStr = (area.fabrics || []).map(f => `${f.mainType}|${f.subType}|${f.name}|${f.color}`).join('||');
+      let key = `${fabStr}###${s1}|${a1}|${s2}|${a2}`;
+      
+      if (!groups[key]) {
+        groups[key] = { labelNums: [], sampleArea: area, s1, a1, s2, a2 };
+      }
+      groups[key].labelNums.push(idx + 1);
+    });
+    return Object.values(groups);
   };
 
   if (view === 'dashboard') {
@@ -1685,8 +1706,10 @@ const App = () => {
         {/* --- Page 2+: Items Mapping --- */}
         <div className="space-y-10 print:space-y-0 w-full">
           {items.map((item, index) => {
-            const sMain1 = item.styleMain1 || item.styleMain || '';
-            const sMain2 = item.styleMain2 || '';
+            // Default Thumbnail Images Logic
+            const primaryArea = item.areas[0] || {};
+            const sMain1 = primaryArea.styleMain1 || item.styleMain1 || item.styleMain || '';
+            const sMain2 = primaryArea.styleMain2 || item.styleMain2 || '';
             const styleImg1 = sMain1 && appDB.styleImages?.[sMain1];
             
             const getFabImg = (fab) => {
@@ -1701,7 +1724,7 @@ const App = () => {
             let imgSheer = null; let txtSheer = ''; let colSheer = '';
             
             if(item.areas.length > 0) {
-               const allFabs = item.areas.flatMap(a => a.fabrics);
+               const allFabs = primaryArea.fabrics || [];
                const fab1 = allFabs[0];
                const fab2 = allFabs[1];
 
@@ -1776,7 +1799,7 @@ const App = () => {
                     </div>
 
                     {/* Right Column 30% */}
-                    <div className="w-full md:w-[30%] print:w-[30%] text-xs flex flex-col bg-white overflow-y-auto print:overflow-hidden h-[600px] md:h-full print:h-full relative z-10">
+                    <div className="w-full md:w-[30%] print:w-[30%] text-xs flex flex-col bg-white overflow-y-auto print:overflow-visible h-[600px] md:h-full print:h-auto relative z-10 print:justify-start">
                       
                       <div className="bg-gray-800 text-white p-3 print:bg-white print:text-black print:p-3 print:pb-0 flex flex-col shrink-0">
                         <span className="mb-1 text-gray-300 print-hidden font-bold text-xs">ห้อง / ตำแหน่ง :</span>
@@ -1784,8 +1807,9 @@ const App = () => {
                         <div className="hidden print-block w-full text-[15px] font-bold leading-tight text-black whitespace-pre-wrap border-b border-gray-800 pb-2 mb-1">{item.roomPos || '-'}</div>
                       </div>
                       
-                      <div className="p-3 print:pt-1 flex-1 flex flex-col justify-start md:justify-between gap-4 print:gap-2 h-full">
+                      <div className="p-3 print:p-2 flex flex-col justify-start gap-4 print:gap-3 h-full print:h-auto print:justify-start">
                         
+                        {/* ---------------- EDITOR VIEW (NO PRINT) ---------------- */}
                         <div className="border border-gray-300 p-2 rounded bg-gray-50 no-print">
                           <div className="flex justify-between items-center mb-2 border-b border-gray-300 pb-1">
                             <span className="font-bold text-gray-800 text-[14px]">รายละเอียดวัสดุ/ผ้า</span>
@@ -1793,8 +1817,8 @@ const App = () => {
                           </div>
                           {item.areas.length === 0 && <span className="text-gray-400 italic no-print text-xs">เพิ่มพื้นที่บนรูปหน้างานก่อน</span>}
                           {item.areas.map((area, aIdx) => (
-                            <div className="mb-3 border-l-[3px] border-blue-500 print:border-gray-800 pl-2" key={area.id}>
-                              <div className="font-bold text-blue-800 print:text-black mb-1.5 flex justify-between items-center bg-blue-50 print:bg-gray-200 px-1.5 py-1 rounded text-[12px]">
+                            <div className="mb-3 border-l-[3px] border-blue-500 pl-2 pb-2 border-b border-gray-200" key={area.id}>
+                              <div className="font-bold text-blue-800 mb-1.5 flex justify-between items-center bg-blue-50 px-1.5 py-1 rounded text-[12px]">
                                 <span>บานที่ {aIdx + 1} <span className="font-normal">(ก:{area.width||'-'} ส:{area.height||'-'})</span></span>
                                 <div className="flex items-center gap-2">
                                   {area.fabrics.length < (item.layers || 2) && (
@@ -1802,13 +1826,11 @@ const App = () => {
                                   )}
                                 </div>
                               </div>
+                              {/* Fabrics List for this area */}
                               {area.fabrics.map((fab) => {
                                 const isCustom = fab.mainType === 'ผ้านอกระบบ (เฉพาะงานนี้)';
                                 const mainTypeOptions = [...Object.keys(appDB.curtainTypes || {}), ...(generalInfo.customFabrics?.length > 0 ? ['ผ้านอกระบบ (เฉพาะงานนี้)'] : [])];
-                                
-                                let subTypeOptions = [];
-                                let nameOptions = [];
-                                let colorOptions = [];
+                                let subTypeOptions = []; let nameOptions = []; let colorOptions = [];
 
                                 if(isCustom) {
                                   const cFabs = generalInfo.customFabrics || [];
@@ -1825,10 +1847,9 @@ const App = () => {
                                 const colorListId = `colors-${item.id}-${area.id}-${fab.id}`;
 
                                 return (
-                                  <div key={fab.id} className="flex flex-col gap-1.5 mb-1.5 bg-white p-1.5 border border-gray-200 rounded relative pr-5 print:pr-1 shadow-sm print:shadow-none">
+                                  <div key={fab.id} className="flex flex-col gap-1.5 mb-1.5 bg-white p-1.5 border border-gray-200 rounded relative pr-5 shadow-sm">
                                     <button onClick={()=>removeFabric(item.id, area.id, fab.id)} className="absolute top-1 right-1 text-red-500 hover:bg-red-50 rounded no-print transition-colors"><X size={14}/></button>
-                                    
-                                    <div className="print-hidden flex flex-col gap-1.5">
+                                    <div className="flex flex-col gap-1.5">
                                       <div className="flex gap-1.5">
                                         <select value={fab.mainType} onChange={(e)=>updateFabric(item.id, area.id, fab.id, 'mainType', e.target.value)} className={`w-1/2 border-b border-gray-300 outline-none text-[11px] bg-transparent font-bold ${isCustom ? 'text-indigo-600' : 'text-gray-700'}`}>
                                           <option value="">-หมวดหมู่-</option>{mainTypeOptions.map(o=><option key={o} value={o}>{o}</option>)}
@@ -1839,75 +1860,85 @@ const App = () => {
                                       </div>
                                       <div className="flex gap-1.5">
                                         <div className="w-1/2 relative">
-                                          <input 
-                                            list={nameListId} 
-                                            value={fab.name} 
-                                            onChange={(e)=>updateFabric(item.id, area.id, fab.id, 'name', e.target.value)} 
-                                            className="w-full border-b border-gray-300 outline-none text-[11px] bg-transparent font-medium" 
-                                            disabled={!fab.subType}
-                                            placeholder="-พิมพ์ค้นหารุ่น-"
-                                          />
+                                          <input list={nameListId} value={fab.name} onChange={(e)=>updateFabric(item.id, area.id, fab.id, 'name', e.target.value)} className="w-full border-b border-gray-300 outline-none text-[11px] bg-transparent font-medium" disabled={!fab.subType} placeholder="-พิมพ์ค้นหารุ่น-"/>
                                           <datalist id={nameListId}>{nameOptions.map(o=><option key={o} value={o}/>)}</datalist>
                                         </div>
                                         <div className="w-1/2 relative">
-                                          <input 
-                                            list={colorListId} 
-                                            value={fab.color} 
-                                            onChange={(e)=>updateFabric(item.id, area.id, fab.id, 'color', e.target.value)} 
-                                            className="w-full border-b border-gray-300 outline-none text-[11px] bg-transparent font-medium text-gray-600" 
-                                            disabled={!fab.name}
-                                            placeholder="-พิมพ์ค้นหาสี-"
-                                          />
+                                          <input list={colorListId} value={fab.color} onChange={(e)=>updateFabric(item.id, area.id, fab.id, 'color', e.target.value)} className="w-full border-b border-gray-300 outline-none text-[11px] bg-transparent font-medium text-gray-600" disabled={!fab.name} placeholder="-พิมพ์ค้นหาสี-"/>
                                           <datalist id={colorListId}>{colorOptions.map(o=><option key={o} value={o}/>)}</datalist>
                                         </div>
                                       </div>
                                     </div>
-
-                                    <div className="hidden print-flex flex-col gap-0.5 text-[12px] leading-snug">
-                                      <span className="font-bold text-gray-900 whitespace-pre-wrap">{fab.mainType || '-'} {fab.subType ? `/ ${fab.subType}` : ''}</span>
-                                      <span className="text-gray-800 whitespace-pre-wrap">{fab.name || '-'} {fab.color ? `/ ${fab.color}` : ''}</span>
-                                    </div>
-
                                   </div>
                                 )
                               })}
+                              
+                              {/* Specific Area Style Config (Overrides Global) */}
+                              <div className="flex flex-col gap-1.5 mt-2 bg-indigo-50/50 p-2 rounded border border-indigo-100">
+                                <span className="font-bold text-[10px] text-indigo-800 mb-0.5">รูปแบบม่าน (กำหนดเฉพาะบาน)</span>
+                                <div className="flex gap-1.5 items-center">
+                                  <span className="text-[10px] font-bold text-gray-500 w-10 shrink-0">ชั้นที่ 1:</span>
+                                  <select value={area.styleMain1 || item.styleMain1 || ''} onChange={(e)=>handleUpdateArea(area.id, 'styleMain1', e.target.value)} className="w-1/2 border-b border-gray-300 outline-none text-[11px] bg-transparent font-bold text-gray-700"><option value="">-ตามค่าเริ่มต้น-</option>{(appDB.styles || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
+                                  <select value={area.styleAction1 || item.styleAction1 || item.styleAction || ''} onChange={(e)=>handleUpdateArea(area.id, 'styleAction1', e.target.value)} className="w-1/2 border-b border-gray-300 outline-none text-[11px] bg-transparent font-bold text-gray-700"><option value="">-ตามค่าเริ่มต้น-</option>{(appDB.actions || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
+                                </div>
+                                {item.layers === 2 && (
+                                  <div className="flex gap-1.5 items-center mt-1">
+                                    <span className="text-[10px] font-bold text-gray-500 w-10 shrink-0">ชั้นที่ 2:</span>
+                                    <select value={area.styleMain2 || item.styleMain2 || ''} onChange={(e)=>handleUpdateArea(area.id, 'styleMain2', e.target.value)} className="w-1/2 border-b border-gray-300 outline-none text-[11px] bg-transparent font-bold text-gray-700"><option value="">-ตามค่าเริ่มต้น-</option>{(appDB.styles || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
+                                    <select value={area.styleAction2 || item.styleAction2 || ''} onChange={(e)=>handleUpdateArea(area.id, 'styleAction2', e.target.value)} className="w-1/2 border-b border-gray-300 outline-none text-[11px] bg-transparent font-bold text-gray-700"><option value="">-ตามค่าเริ่มต้น-</option>{(appDB.actions || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
+                                  </div>
+                                )}
+                              </div>
                             </div>
                           ))}
                         </div>
 
-                        <div className="flex flex-col gap-3 py-1 flex-1 justify-center">
-                          <div className="flex flex-col"><span className="font-bold text-gray-800 text-[14px] border-b border-gray-300 pb-1 mb-1">รูปแบบการทำงาน</span>
-                            <div className="flex items-center gap-4 mb-2 bg-gray-100 p-1.5 rounded print-hidden">
+                        {/* ---------------- PRINT VIEW (SMART GROUPING) ---------------- */}
+                        <div className="hidden print-block w-full mt-2">
+                          <span className="font-bold text-gray-800 text-[14px] border-b border-gray-800 pb-1 mb-2 block">รายละเอียดวัสดุ และ รูปแบบม่าน</span>
+                          {getGroupedAreas(item).map((grp, gIdx) => (
+                             <div key={gIdx} className="mb-3 pl-2 border-l-[3px] border-gray-800">
+                                <span className="font-bold text-black text-[13px] block mb-1">
+                                  {grp.labelNums.length === item.areas.length && item.areas.length > 1 ? "ทุกบานทั้งหมด" : `บานที่ ${grp.labelNums.join(', ')}`}
+                                </span>
+                                {grp.sampleArea.fabrics.map((fab, fIdx) => (
+                                   <div key={fIdx} className="text-[12px] leading-snug mb-1">
+                                     <span className="font-bold text-gray-900">{fab.mainType || '-'} {fab.subType ? `/ ${fab.subType}` : ''}</span>
+                                     <br/><span className="text-gray-800">{fab.name || '-'} {fab.color ? `/ ${fab.color}` : ''}</span>
+                                   </div>
+                                ))}
+                                {grp.sampleArea.fabrics.length === 0 && <span className="text-gray-400 italic text-[12px]">ไม่ระบุเนื้อผ้า</span>}
+                                <div className="text-[12px] leading-snug mt-1.5 border-t border-dashed border-gray-300 pt-1.5">
+                                   <span className="text-gray-800 block"><span className="font-bold">ชั้น 1:</span> {grp.s1} {grp.a1 !== '-' ? `(${grp.a1})` : ''}</span>
+                                   {item.layers === 2 && (
+                                      <span className="text-gray-800 block mt-0.5"><span className="font-bold">ชั้น 2:</span> {grp.s2} {grp.a2 !== '-' ? `(${grp.a2})` : ''}</span>
+                                   )}
+                                </div>
+                             </div>
+                          ))}
+                        </div>
+
+                        <div className="flex flex-col gap-3 py-1 flex-1 justify-start">
+                          <div className="flex flex-col print-hidden">
+                            <span className="font-bold text-gray-800 text-[14px] border-b border-gray-300 pb-1 mb-1">รูปแบบการทำงาน (ค่าเริ่มต้นทั้งหมด)</span>
+                            <div className="flex items-center gap-4 mb-2 bg-gray-100 p-1.5 rounded">
                               <span className="text-[11px] font-bold text-gray-600">จำนวนชั้นม่าน:</span>
                               <label className="flex items-center gap-1 text-[11px] cursor-pointer font-bold"><input type="radio" checked={item.layers === 1} onChange={()=>handleLayerChange(item.id, 1)}/> 1 ชั้น</label>
                               <label className="flex items-center gap-1 text-[11px] cursor-pointer font-bold"><input type="radio" checked={item.layers !== 1} onChange={()=>handleLayerChange(item.id, 2)}/> 2 ชั้น</label>
                             </div>
-                            
-                            <div className="flex gap-1.5 items-center mt-0.5 print-hidden">
+                            <div className="flex gap-1.5 items-center mt-0.5">
                               {item.layers !== 1 && <span className="text-[10px] font-bold text-gray-500 w-10 shrink-0">ชั้นที่ 1:</span>}
-                              <select value={sMain1} onChange={(e)=>handleItemChange(item.id, 'styleMain1', e.target.value)} className="w-1/2 border-b border-gray-400 outline-none bg-transparent text-blue-800 font-bold text-xs"><option value="">-รูปแบบ-</option>{(appDB.styles || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
+                              <select value={item.styleMain1 || item.styleMain || ''} onChange={(e)=>handleItemChange(item.id, 'styleMain1', e.target.value)} className="w-1/2 border-b border-gray-400 outline-none bg-transparent text-blue-800 font-bold text-xs"><option value="">-รูปแบบ-</option>{(appDB.styles || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
                               <span className="text-gray-400 font-bold">/</span>
                               <select value={item.styleAction1 || item.styleAction || ''} onChange={(e)=>handleItemChange(item.id, 'styleAction1', e.target.value)} className="w-1/2 border-b border-gray-400 outline-none bg-transparent text-blue-800 font-bold text-xs"><option value="">-เปิดปิด-</option>{(appDB.actions || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
                             </div>
-                            
-                            <div className="hidden print-block text-[13px] font-bold text-gray-800 mt-1 whitespace-pre-wrap">
-                              {item.layers !== 1 && <span className="text-gray-600 mr-1">ชั้นที่ 1:</span>}
-                              {sMain1 || '-'} {item.styleAction1 || item.styleAction ? `/ ${item.styleAction1 || item.styleAction}` : ''}
-                            </div>
-
                             {item.layers !== 1 && (
-                              <>
-                                <div className="flex gap-1.5 items-center mt-1.5 print-hidden">
-                                  <span className="text-[10px] font-bold text-gray-500 w-10 shrink-0">ชั้นที่ 2:</span>
-                                  <select value={sMain2} onChange={(e)=>handleItemChange(item.id, 'styleMain2', e.target.value)} className="w-1/2 border-b border-gray-400 outline-none bg-transparent text-blue-800 font-bold text-xs"><option value="">-รูปแบบ-</option>{(appDB.styles || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
-                                  <span className="text-gray-400 font-bold">/</span>
-                                  <select value={item.styleAction2 || ''} onChange={(e)=>handleItemChange(item.id, 'styleAction2', e.target.value)} className="w-1/2 border-b border-gray-400 outline-none bg-transparent text-blue-800 font-bold text-xs"><option value="">-เปิดปิด-</option>{(appDB.actions || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
-                                </div>
-                                <div className="hidden print-block text-[13px] font-bold text-gray-800 mt-1 whitespace-pre-wrap">
-                                  <span className="text-gray-600 mr-1">ชั้นที่ 2:</span>
-                                  {sMain2 || '-'} {item.styleAction2 ? `/ ${item.styleAction2}` : ''}
-                                </div>
-                              </>
+                              <div className="flex gap-1.5 items-center mt-1.5">
+                                <span className="text-[10px] font-bold text-gray-500 w-10 shrink-0">ชั้นที่ 2:</span>
+                                <select value={item.styleMain2 || ''} onChange={(e)=>handleItemChange(item.id, 'styleMain2', e.target.value)} className="w-1/2 border-b border-gray-400 outline-none bg-transparent text-blue-800 font-bold text-xs"><option value="">-รูปแบบ-</option>{(appDB.styles || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
+                                <span className="text-gray-400 font-bold">/</span>
+                                <select value={item.styleAction2 || ''} onChange={(e)=>handleItemChange(item.id, 'styleAction2', e.target.value)} className="w-1/2 border-b border-gray-400 outline-none bg-transparent text-blue-800 font-bold text-xs"><option value="">-เปิดปิด-</option>{(appDB.actions || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
+                              </div>
                             )}
                           </div>
 
@@ -1969,7 +2000,7 @@ const App = () => {
                           </div>
                         </div>
 
-                        <div className="flex flex-col pt-2 border-t border-gray-300 shrink-0">
+                        <div className="flex flex-col pt-2 border-t border-gray-300 shrink-0 mt-auto">
                           <span className="font-bold text-red-600 print:text-gray-800 text-[14px] mb-1">หมายเหตุ</span>
                           <textarea value={item.note} onChange={(e)=>handleItemChange(item.id, 'note', e.target.value)} rows="2" 
                             className="w-full border border-red-200 rounded p-1.5 text-red-600 focus:outline-none focus:border-red-400 print-hidden resize-none bg-red-50 text-[12px] leading-tight"

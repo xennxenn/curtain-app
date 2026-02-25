@@ -225,6 +225,7 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
   const [type, setType] = useState('');
   const [localText, setLocalText] = useState({});
   const [isUploading, setIsUploading] = useState(false);
+  const [searchFabric, setSearchFabric] = useState('');
 
   useEffect(() => {
     setLocalText({
@@ -311,7 +312,7 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
         const newDB = JSON.parse(JSON.stringify(appDB));
         delete newDB.curtainTypes[cat][t];
         setAppDB(newDB);
-        if(type === t) setType('');
+        if(type === t) { setType(''); setSearchFabric(''); }
       }
     });
   };
@@ -351,6 +352,24 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
     setAppDB(newDB);
   };
 
+  // จัดเตรียมและเรียงลำดับรายการผ้าให้ค้นหาและแสดงผลแบบ A-Z
+  let fabricList = [];
+  if (type && appDB.curtainTypes[cat] && appDB.curtainTypes[cat][type]) {
+    Object.entries(appDB.curtainTypes[cat][type]).forEach(([itemName, colors]) => {
+      Object.entries(colors).forEach(([itemColor, imgUrl]) => {
+        fabricList.push({ itemName, itemColor, imgUrl });
+      });
+    });
+    // Sort A-Z by name then by color
+    fabricList.sort((a, b) => a.itemName.localeCompare(b.itemName) || a.itemColor.localeCompare(b.itemColor));
+    
+    // Filter with Search
+    if (searchFabric.trim()) {
+      const term = searchFabric.toLowerCase();
+      fabricList = fabricList.filter(f => f.itemName.toLowerCase().includes(term) || f.itemColor.toLowerCase().includes(term));
+    }
+  }
+
   return (
     <div className="fixed inset-0 bg-black/60 z-[100000] flex items-center justify-center p-4">
       <div className="bg-white rounded-lg shadow-xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden">
@@ -372,7 +391,7 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
                   <label className="block text-sm font-bold mb-2">1. หมวดหมู่หลัก</label>
                   <div className="flex gap-2">
                     {Object.keys(appDB.curtainTypes || {}).map(c => (
-                      <button key={c} onClick={()=>{setCat(c); setType('');}} className={`px-4 py-1.5 border rounded-full text-sm transition-colors ${cat===c ? 'bg-blue-600 text-white border-blue-600 shadow' : 'bg-white hover:bg-gray-50'}`}>{c}</button>
+                      <button key={c} onClick={()=>{setCat(c); setType(''); setSearchFabric('');}} className={`px-4 py-1.5 border rounded-full text-sm transition-colors ${cat===c ? 'bg-blue-600 text-white border-blue-600 shadow' : 'bg-white hover:bg-gray-50'}`}>{c}</button>
                     ))}
                   </div>
                 </div>
@@ -381,7 +400,7 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
                   <div className="flex flex-wrap gap-2 mb-4">
                     {Object.keys((appDB.curtainTypes && appDB.curtainTypes[cat]) || {}).map((t, idx, arr) => (
                       <div key={t} className={`flex items-center border rounded transition-colors ${type===t ? 'bg-indigo-600 text-white border-indigo-600 shadow' : 'bg-white hover:bg-gray-100'}`}>
-                        <button onClick={()=>setType(t)} className="px-4 py-1.5 text-sm font-bold">{t}</button>
+                        <button onClick={()=>{setType(t); setSearchFabric('');}} className="px-4 py-1.5 text-sm font-bold">{t}</button>
                         <div className="flex flex-col border-l border-white/20">
                           <button onClick={()=>moveFabricType(-1, t)} disabled={idx===0} className="px-1 py-0.5 hover:bg-black/20 disabled:opacity-30"><ChevronLeft size={10} className="rotate-90"/></button>
                           <button onClick={()=>moveFabricType(1, t)} disabled={idx===arr.length-1} className="px-1 py-0.5 hover:bg-black/20 disabled:opacity-30"><ChevronRight size={10} className="rotate-90"/></button>
@@ -398,19 +417,30 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
 
                 {type && (
                   <div className="bg-indigo-50 p-4 border border-indigo-100 rounded-lg flex flex-col gap-4">
-                    <label className="block text-sm font-bold">3. รายการผ้า ({type})</label>
+                    <div className="flex justify-between items-center border-b border-indigo-200 pb-2">
+                      <label className="block text-sm font-bold">3. รายการผ้า ({type})</label>
+                      <input 
+                        type="text" 
+                        placeholder="🔍 พิมพ์ค้นหารุ่น หรือสี..." 
+                        value={searchFabric}
+                        onChange={e => setSearchFabric(e.target.value)}
+                        className="border px-3 py-1 rounded-full text-xs w-64 focus:outline-indigo-500 bg-white shadow-inner"
+                      />
+                    </div>
+                    
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                      {Object.entries((appDB.curtainTypes[cat] && appDB.curtainTypes[cat][type]) || {}).flatMap(([itemName, colors]) => 
-                        Object.entries(colors).map(([itemColor, imgUrl]) => (
-                          <div key={`${itemName}-${itemColor}`} className="bg-white border p-2 rounded flex gap-2 relative group shadow-sm">
-                            <button onClick={()=>deleteFabricItem(type, itemName, itemColor)} className="absolute top-1 right-1 bg-red-100 text-red-600 p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={12}/></button>
-                            <img src={imgUrl} alt="" className="w-12 h-12 object-cover rounded border"/>
-                            <div className="flex flex-col justify-center flex-1 overflow-hidden">
-                              <span className="text-xs font-bold truncate">{itemName}</span>
-                              <span className="text-[10px] text-gray-500 truncate">{itemColor}</span>
-                            </div>
+                      {fabricList.map(({ itemName, itemColor, imgUrl }) => (
+                        <div key={`${itemName}-${itemColor}`} className="bg-white border p-2 rounded flex gap-2 relative group shadow-sm">
+                          <button onClick={()=>deleteFabricItem(type, itemName, itemColor)} className="absolute top-1 right-1 bg-red-100 text-red-600 p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={12}/></button>
+                          <img src={imgUrl} alt="" className="w-12 h-12 object-cover rounded border"/>
+                          <div className="flex flex-col justify-center flex-1 overflow-hidden">
+                            <span className="text-xs font-bold truncate">{itemName}</span>
+                            <span className="text-[10px] text-gray-500 truncate">{itemColor}</span>
                           </div>
-                        ))
+                        </div>
+                      ))}
+                      {fabricList.length === 0 && (
+                        <div className="col-span-full text-center text-gray-400 text-sm py-4">ไม่พบรายการผ้าที่ค้นหา</div>
                       )}
                     </div>
 
@@ -976,20 +1006,24 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
                       const leftImg = masks['รวบซ้าย'] || maskImgFallback;
                       const rightImg = masks['รวบขวา'] || maskImgFallback;
                       maskElements.push(
-                        <g key="W">
-                          <image href={leftImg} x={minX} y={minY} width={w * mPct} height={h} preserveAspectRatio="none" clipPath={`url(#${clipId})`} opacity={maskOpacity} />
-                          <image href={rightImg} x={maxX - (w * mPct)} y={minY} width={w * mPct} height={h} preserveAspectRatio="none" clipPath={`url(#${clipId})`} opacity={maskOpacity} />
+                        <g key="W" clipPath={`url(#${clipId})`}>
+                          <image href={leftImg} x={minX} y={minY} width={w * mPct} height={h} preserveAspectRatio="none" opacity={maskOpacity} />
+                          <image href={rightImg} x={maxX - (w * mPct)} y={minY} width={w * mPct} height={h} preserveAspectRatio="none" opacity={maskOpacity} />
                         </g>
                       );
                     } else if (action.includes('ขวา')) {
                       const rightImg = masks['รวบขวา'] || masks[action] || maskImgFallback;
                       maskElements.push(
-                        <image key="R" href={rightImg} x={maxX - (w * mPct)} y={minY} width={w * mPct} height={h} preserveAspectRatio="none" clipPath={`url(#${clipId})`} opacity={maskOpacity} />
+                        <g key="R" clipPath={`url(#${clipId})`}>
+                          <image href={rightImg} x={maxX - (w * mPct)} y={minY} width={w * mPct} height={h} preserveAspectRatio="none" opacity={maskOpacity} />
+                        </g>
                       );
                     } else {
                       const leftImg = masks['รวบซ้าย'] || masks[action] || maskImgFallback;
                       maskElements.push(
-                        <image key="L" href={leftImg} x={minX} y={minY} width={w * mPct} height={h} preserveAspectRatio="none" clipPath={`url(#${clipId})`} opacity={maskOpacity} />
+                        <g key="L" clipPath={`url(#${clipId})`}>
+                          <image href={leftImg} x={minX} y={minY} width={w * mPct} height={h} preserveAspectRatio="none" opacity={maskOpacity} />
+                        </g>
                       );
                     }
                   }
@@ -1730,14 +1764,17 @@ const App = () => {
 
                                 if(isCustom) {
                                   const cFabs = generalInfo.customFabrics || [];
-                                  subTypeOptions = [...new Set(cFabs.map(f=>f.subType))].filter(Boolean);
-                                  nameOptions = [...new Set(cFabs.filter(f=>f.subType === fab.subType).map(f=>f.name))].filter(Boolean);
-                                  colorOptions = [...new Set(cFabs.filter(f=>f.subType === fab.subType && f.name === fab.name).map(f=>f.color))].filter(Boolean);
+                                  subTypeOptions = [...new Set(cFabs.map(f=>f.subType))].filter(Boolean).sort((a,b)=>a.localeCompare(b));
+                                  nameOptions = [...new Set(cFabs.filter(f=>f.subType === fab.subType).map(f=>f.name))].filter(Boolean).sort((a,b)=>a.localeCompare(b));
+                                  colorOptions = [...new Set(cFabs.filter(f=>f.subType === fab.subType && f.name === fab.name).map(f=>f.color))].filter(Boolean).sort((a,b)=>a.localeCompare(b));
                                 } else {
-                                  subTypeOptions = fab.mainType ? Object.keys(appDB.curtainTypes[fab.mainType] || {}) : [];
-                                  nameOptions = fab.subType ? Object.keys(appDB.curtainTypes[fab.mainType]?.[fab.subType] || {}) : [];
-                                  colorOptions = fab.name ? Object.keys(appDB.curtainTypes[fab.mainType]?.[fab.subType]?.[fab.name] || {}) : [];
+                                  subTypeOptions = fab.mainType ? Object.keys(appDB.curtainTypes[fab.mainType] || {}).sort((a,b)=>a.localeCompare(b)) : [];
+                                  nameOptions = fab.subType ? Object.keys(appDB.curtainTypes[fab.mainType]?.[fab.subType] || {}).sort((a,b)=>a.localeCompare(b)) : [];
+                                  colorOptions = fab.name ? Object.keys(appDB.curtainTypes[fab.mainType]?.[fab.subType]?.[fab.name] || {}).sort((a,b)=>a.localeCompare(b)) : [];
                                 }
+
+                                const nameListId = `names-${item.id}-${area.id}-${fab.id}`;
+                                const colorListId = `colors-${item.id}-${area.id}-${fab.id}`;
 
                                 return (
                                   <div key={fab.id} className="flex flex-col gap-1.5 mb-1.5 bg-white p-1.5 border border-gray-200 rounded relative pr-5 print:pr-1 shadow-sm print:shadow-none">
@@ -1753,12 +1790,28 @@ const App = () => {
                                         </select>
                                       </div>
                                       <div className="flex gap-1.5">
-                                        <select value={fab.name} onChange={(e)=>updateFabric(item.id, area.id, fab.id, 'name', e.target.value)} className="w-1/2 border-b border-gray-300 outline-none text-[11px] bg-transparent font-medium" disabled={!fab.subType}>
-                                          <option value="">-รุ่น/ชื่อ-</option>{nameOptions.map(o=><option key={o} value={o}>{o}</option>)}
-                                        </select>
-                                        <select value={fab.color} onChange={(e)=>updateFabric(item.id, area.id, fab.id, 'color', e.target.value)} className="w-1/2 border-b border-gray-300 outline-none text-[11px] bg-transparent font-medium text-gray-600" disabled={!fab.name}>
-                                          <option value="">-สี-</option>{colorOptions.map(o=><option key={o} value={o}>{o}</option>)}
-                                        </select>
+                                        <div className="w-1/2 relative">
+                                          <input 
+                                            list={nameListId} 
+                                            value={fab.name} 
+                                            onChange={(e)=>updateFabric(item.id, area.id, fab.id, 'name', e.target.value)} 
+                                            className="w-full border-b border-gray-300 outline-none text-[11px] bg-transparent font-medium" 
+                                            disabled={!fab.subType}
+                                            placeholder="-พิมพ์ค้นหารุ่น-"
+                                          />
+                                          <datalist id={nameListId}>{nameOptions.map(o=><option key={o} value={o}/>)}</datalist>
+                                        </div>
+                                        <div className="w-1/2 relative">
+                                          <input 
+                                            list={colorListId} 
+                                            value={fab.color} 
+                                            onChange={(e)=>updateFabric(item.id, area.id, fab.id, 'color', e.target.value)} 
+                                            className="w-full border-b border-gray-300 outline-none text-[11px] bg-transparent font-medium text-gray-600" 
+                                            disabled={!fab.name}
+                                            placeholder="-พิมพ์ค้นหาสี-"
+                                          />
+                                          <datalist id={colorListId}>{colorOptions.map(o=><option key={o} value={o}/>)}</datalist>
+                                        </div>
                                       </div>
                                     </div>
 

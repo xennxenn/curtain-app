@@ -120,7 +120,6 @@ const removeWhiteBackground = (dataUrl) => {
         if (r > 190 && g > 190 && b > 190) {
           data[i+3] = 0;
         }
-        // ลบโค้ดบังคับเปลี่ยนสีออก เพื่อให้คงสีหมึกเดิมจากภาพต้นฉบับไว้
       }
       ctx.putImageData(imgData, 0, 0);
       resolve(canvas.toDataURL('image/png'));
@@ -1533,6 +1532,10 @@ const App = () => {
   const [dialog, setDialog] = useState(null);
   const [allAccounts, setAllAccounts] = useState(DEFAULT_ACCOUNTS);
   
+  // Dashboard Filters
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterEmployee, setFilterEmployee] = useState('');
+
   // Background Upload State
   const [bgUploadQueue, setBgUploadQueue] = useState([]);
   const [bgUploadProgress, setBgUploadProgress] = useState({ current: 0, total: 0, active: false });
@@ -1717,12 +1720,22 @@ const App = () => {
 
   const handleEdit = (proj) => {
     setCurrentProjectId(proj.id);
-    const fallbackCreatorName = proj.owner || appUser.name || appUser.username;
+    
+    const ownerAcc = allAccounts.find(u => u.username === proj.owner);
+    let cName = proj.generalInfo?.creatorName;
+    let cSig = proj.generalInfo?.creatorSignature;
+    
+    // Auto-resolve older projects that might have saved username instead of actual name
+    if (ownerAcc) {
+        if (!cName || cName === proj.owner) cName = ownerAcc.name || ownerAcc.username;
+        if (!cSig) cSig = ownerAcc.signatureUrl || '';
+    }
+
     setGeneralInfo({ 
        ...proj.generalInfo, 
        customFabrics: proj.generalInfo?.customFabrics || [],
-       creatorName: proj.generalInfo?.creatorName || fallbackCreatorName,
-       creatorSignature: proj.generalInfo?.creatorSignature || ''
+       creatorName: cName || appUser.name || appUser.username,
+       creatorSignature: cSig || ''
     });
     const migratedItems = (proj.items || []).map(item => ({
       ...item,
@@ -1889,48 +1902,80 @@ const App = () => {
     return `บานที่ ${nums.slice(0, -1).join(', ')} และ ${nums[nums.length - 1]}`;
   };
 
+  // Filter projects for Dashboard
+  const filteredProjects = projectsList.filter(proj => {
+    const matchSearch = proj.generalInfo?.customerName?.toLowerCase().includes(searchQuery.toLowerCase()) || false;
+    const passSearch = searchQuery.trim() === '' || matchSearch;
+    const passFilter = filterEmployee === '' || proj.owner === filterEmployee;
+    return passSearch && passFilter;
+  });
+
   if (view === 'dashboard') {
     return (
-      <div className="min-h-screen bg-gray-100 p-8 font-sans">
+      <div className="min-h-screen bg-gray-100 p-4 md:p-8 font-sans">
         <AlertDialog dialog={dialog} onClose={() => setDialog(null)} />
         <UserManagementModal show={showUserMgmt} onClose={()=>setShowUserMgmt(false)} setDialog={setDialog} allAccounts={allAccounts} setAllAccounts={setAllAccounts} />
         <div className="max-w-6xl mx-auto">
-          <div className="flex justify-between items-center bg-white p-4 rounded-lg shadow-sm mb-6 border-b-4 border-blue-600">
+          <div className="flex flex-col md:flex-row justify-between md:items-center bg-white p-4 rounded-lg shadow-sm mb-6 border-b-4 border-blue-600 gap-4">
             <div>
               <h1 className="text-2xl font-bold text-gray-800">Confirmation Form</h1>
               <p className="text-sm text-gray-500">ระบบจัดการใบงานผ้าม่าน - สวัสดีคุณ <span className="font-bold text-blue-600">{appUser.name || appUser.username}</span> {appUser.role === 'admin' && '(Admin)'}</p>
             </div>
-            <div className="flex gap-3">
-              {appUser.role === 'admin' && <button onClick={()=>setShowUserMgmt(true)} className="bg-purple-600 text-white px-4 py-2 rounded flex items-center font-bold hover:bg-purple-700 shadow"><Users size={16} className="mr-2"/> จัดการพนักงาน</button>}
-              <button onClick={handleLogout} className="bg-red-500 text-white px-4 py-2 rounded flex items-center font-bold hover:bg-red-600 shadow"><LogOut size={16} className="mr-2"/> ออกจากระบบ</button>
+            <div className="flex flex-wrap gap-2 md:gap-3">
+              {appUser.role === 'admin' && <button onClick={()=>setShowUserMgmt(true)} className="bg-purple-600 text-white px-4 py-2 rounded flex items-center justify-center font-bold hover:bg-purple-700 shadow flex-1 md:flex-none"><Users size={16} className="mr-2"/> จัดการพนักงาน</button>}
+              <button onClick={handleLogout} className="bg-red-500 text-white px-4 py-2 rounded flex items-center justify-center font-bold hover:bg-red-600 shadow flex-1 md:flex-none"><LogOut size={16} className="mr-2"/> ออกจากระบบ</button>
             </div>
           </div>
 
-          <div className="flex justify-between items-center mb-4">
-             <h2 className="text-xl font-bold text-gray-700">รายการใบงานทั้งหมด ({projectsList.length})</h2>
-             <button onClick={handleCreateNew} className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg flex items-center font-bold shadow-md"><Plus size={18} className="mr-2"/> สร้างใบงานใหม่</button>
+          <div className="flex flex-col md:flex-row justify-between items-center mb-4 gap-3">
+             <h2 className="text-xl font-bold text-gray-700 whitespace-nowrap mr-auto w-full md:w-auto">รายการใบงานทั้งหมด ({filteredProjects.length})</h2>
+             <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto">
+               <input 
+                 type="text" 
+                 placeholder="🔍 ค้นหาชื่อลูกค้า..." 
+                 value={searchQuery}
+                 onChange={e => setSearchQuery(e.target.value)}
+                 className="border border-gray-300 px-3 py-2 rounded-lg text-sm focus:outline-blue-500 shadow-sm w-full sm:w-64"
+               />
+               {appUser.role === 'admin' && (
+                 <select 
+                   value={filterEmployee}
+                   onChange={e => setFilterEmployee(e.target.value)}
+                   className="border border-gray-300 px-3 py-2 rounded-lg text-sm focus:outline-blue-500 shadow-sm w-full sm:w-auto"
+                 >
+                   <option value="">- พนักงานทั้งหมด -</option>
+                   {allAccounts.map(acc => (
+                     <option key={acc.id} value={acc.username}>{acc.name || acc.username}</option>
+                   ))}
+                 </select>
+               )}
+               <button onClick={handleCreateNew} className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-lg flex items-center justify-center font-bold shadow-md transition-colors w-full sm:w-auto shrink-0"><Plus size={18} className="mr-1.5"/> สร้างใบงาน</button>
+             </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-             {projectsList.map(proj => (
-               <div key={proj.id} onClick={()=>handleEdit(proj)} className="bg-white p-4 rounded-lg shadow hover:shadow-lg cursor-pointer border border-gray-200 transition-all group relative">
-                 <div className="flex justify-between items-start mb-2">
-                   <div className="flex items-center gap-3">
-                     <div className="bg-blue-100 p-3 rounded-full text-blue-600"><FileText size={24}/></div>
-                     <div>
-                       <h3 className="font-bold text-gray-800 break-words w-48 text-base">{proj.generalInfo?.customerName || 'ไม่มีชื่อลูกค้า'}</h3>
-                       <p className="text-xs text-gray-500 mt-1">{proj.generalInfo?.location || 'ไม่มีข้อมูลสถานที่'}</p>
+             {filteredProjects.map(proj => {
+               const creatorNameDisplay = allAccounts.find(a => a.username === proj.owner)?.name || proj.owner;
+               return (
+                 <div key={proj.id} onClick={()=>handleEdit(proj)} className="bg-white p-4 rounded-lg shadow hover:shadow-lg cursor-pointer border border-gray-200 transition-all group relative">
+                   <div className="flex justify-between items-start mb-2">
+                     <div className="flex items-center gap-3">
+                       <div className="bg-blue-100 p-3 rounded-full text-blue-600"><FileText size={24}/></div>
+                       <div>
+                         <h3 className="font-bold text-gray-800 break-words w-48 text-base">{proj.generalInfo?.customerName || 'ไม่มีชื่อลูกค้า'}</h3>
+                         <p className="text-xs text-gray-500 mt-1">{proj.generalInfo?.location || 'ไม่มีข้อมูลสถานที่'}</p>
+                       </div>
                      </div>
+                     <button onClick={(e)=>handleDelete(proj.id, e)} className="text-red-400 hover:text-red-600 p-1.5 bg-red-50 rounded opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={16}/></button>
                    </div>
-                   <button onClick={(e)=>handleDelete(proj.id, e)} className="text-red-400 hover:text-red-600 p-1.5 bg-red-50 rounded opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={16}/></button>
+                   <div className="text-xs text-gray-500 mt-4 border-t pt-3 flex justify-between">
+                     <span>ผู้ทำ: <span className="font-bold text-gray-700">{creatorNameDisplay}</span></span>
+                     <span>อัปเดต: {new Date(proj.updatedAt).toLocaleDateString('th-TH')}</span>
+                   </div>
                  </div>
-                 <div className="text-xs text-gray-500 mt-4 border-t pt-3 flex justify-between">
-                   <span>ผู้ทำ: <span className="font-bold text-gray-700">{proj.owner}</span></span>
-                   <span>อัปเดต: {new Date(proj.updatedAt).toLocaleDateString('th-TH')}</span>
-                 </div>
-               </div>
-             ))}
-             {projectsList.length === 0 && <div className="col-span-full text-center p-10 bg-white rounded-lg border-2 border-dashed text-gray-400 font-bold">ยังไม่มีใบงานในระบบ</div>}
+               )
+             })}
+             {filteredProjects.length === 0 && <div className="col-span-full text-center p-10 bg-white rounded-lg border-2 border-dashed text-gray-400 font-bold">ไม่พบใบงานที่ค้นหา</div>}
           </div>
         </div>
       </div>
@@ -2032,12 +2077,12 @@ const App = () => {
                 </div>
                 
                 {/* Creator & Signature Section */}
-                <div className="mt-6 flex flex-col items-center justify-end w-full">
-                  <div className="h-16 flex items-end justify-center mb-1 w-full relative">
-                    {generalInfo.creatorSignature ? (
-                      <img src={generalInfo.creatorSignature} className="max-h-full max-w-[12rem] object-contain pointer-events-none mix-blend-multiply" alt="signature" />
-                    ) : null}
-                  </div>
+                <div className="mt-8 flex flex-col items-center justify-end relative h-24">
+                  {generalInfo.creatorSignature && (
+                    <div className="h-12 w-full flex justify-center items-end mb-1">
+                      <img src={generalInfo.creatorSignature} className="max-h-full object-contain mix-blend-multiply" alt="signature" />
+                    </div>
+                  )}
                   {appUser.role === 'admin' ? (
                     <select 
                        value={generalInfo.creatorName || ''} 
@@ -2067,7 +2112,7 @@ const App = () => {
                   <div className="flex items-center mt-4"><span className="w-32 font-bold text-gray-700">ผู้ติดต่อแทน :</span><input type="text" name="agentName" value={generalInfo.agentName} onChange={handleGeneralChange} className="flex-1 border-b border-gray-300 outline-none focus:border-blue-500 px-1 font-medium bg-transparent" /></div>
                   <div className="flex items-center"><span className="w-32 font-bold text-gray-700">เบอร์ติดต่อ :</span><input type="text" name="agentPhone" value={generalInfo.agentPhone} onChange={handleGeneralChange} className="flex-1 border-b border-gray-300 outline-none focus:border-blue-500 px-1 font-medium bg-transparent" /></div>
                 </div>
-                <div className="mt-auto pt-8 text-center flex flex-col items-center justify-end h-20">
+                <div className="mt-auto pt-8 text-center flex flex-col items-center justify-end h-24">
                   <p className="border-b border-gray-400 w-48 mx-auto mb-1"></p>
                   <p className="text-gray-600 text-sm font-bold">ผู้สั่งซื้อ</p>
                 </div>

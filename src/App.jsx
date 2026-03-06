@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Trash2, Printer, Image as ImageIcon, Upload, Save, X, MousePointerClick, Settings, Database, Eye, EyeOff, Move, Users, LogOut, FileText, ArrowLeft, Share2, ChevronLeft, ChevronRight, ImagePlus } from 'lucide-react';
+import { Plus, Trash2, Printer, Image as ImageIcon, Upload, Download, Save, X, MousePointerClick, Settings, Database, Eye, EyeOff, Move, Users, LogOut, FileText, ArrowLeft, Share2, ChevronLeft, ChevronRight, ImagePlus } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, doc, setDoc, getDoc, collection, getDocs, deleteDoc, onSnapshot } from 'firebase/firestore';
@@ -50,8 +50,8 @@ const DEFAULT_DB = {
 };
 
 const DEFAULT_ACCOUNTS = [
-  { id: '1', username: 'Admin', password: '1234', role: 'admin', name: 'ผู้ดูแลระบบ' },
-  { id: '2', username: 'T65099', password: '65099', role: 'user', name: 'พนักงานทดสอบ' }
+  { id: '1', username: 'Admin', password: '1234', role: 'admin', name: 'ผู้ดูแลระบบ', signatureUrl: '' },
+  { id: '2', username: 'T65099', password: '65099', role: 'user', name: 'พนักงานทดสอบ', signatureUrl: '' }
 ];
 
 // --- Utility: Alert/Confirm Dialog System ---
@@ -100,6 +100,33 @@ const uploadImageToImgBB = async (base64Str) => {
     console.error("Upload failed", e);
     return null;
   }
+};
+
+// --- Utility: Background Removal for Signatures ---
+const removeWhiteBackground = (dataUrl) => {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const data = imgData.data;
+      for (let i = 0; i < data.length; i += 4) {
+        const r = data[i], g = data[i+1], b = data[i+2];
+        if (r > 190 && g > 190 && b > 190) {
+          data[i+3] = 0;
+        } else {
+          data[i] = 20; data[i+1] = 20; data[i+2] = 40;
+        }
+      }
+      ctx.putImageData(imgData, 0, 0);
+      resolve(canvas.toDataURL('image/png'));
+    };
+    img.src = dataUrl;
+  });
 };
 
 // --- Utility: HEIC/HEIF Image Support & Compression ---
@@ -272,6 +299,60 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
     }
   };
 
+  // --- RECOVERY FUNCTION ---
+  const handleRecoverLocal = async () => {
+    const localBackup = localStorage.getItem('backupAppDB');
+    if (localBackup) {
+      try {
+        const parsed = JSON.parse(localBackup);
+        if (Object.keys(parsed.curtainTypes?.['ผ้าม่าน'] || {}).length > 0) {
+          setAppDB(parsed);
+          await saveAppDB(parsed);
+          setDialog({ type: 'alert', message: 'กู้คืนข้อมูลจากความจำเครื่องนี้สำเร็จแล้ว! ข้อมูลออนไลน์กลับมาแล้วครับ' });
+        } else {
+          setDialog({ type: 'alert', message: 'ข้อมูลสำรองในเครื่องนี้ว่างเปล่า ไม่สามารถกู้คืนได้' });
+        }
+      } catch (e) {
+        setDialog({ type: 'alert', message: 'ไฟล์สำรองในเครื่องเสียหาย' });
+      }
+    } else {
+      setDialog({ type: 'alert', message: 'ขออภัย ไม่พบข้อมูลสำรองในเครื่องนี้ กรุณาลองกดปุ่มนี้ในคอมพิวเตอร์เครื่องที่คุณเคยอัปเดตข้อมูลล่าสุด' });
+    }
+  };
+
+  // --- EXPORT/IMPORT DB FUNCTIONS ---
+  const handleExportDB = () => {
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(appDB));
+    const downloadAnchorNode = document.createElement('a');
+    downloadAnchorNode.setAttribute("href", dataStr);
+    downloadAnchorNode.setAttribute("download", "curtain_db_backup_" + new Date().toISOString().split('T')[0] + ".json");
+    document.body.appendChild(downloadAnchorNode);
+    downloadAnchorNode.click();
+    downloadAnchorNode.remove();
+  };
+
+  const handleImportDB = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const importedDB = JSON.parse(event.target.result);
+        if (importedDB && importedDB.curtainTypes) {
+          setAppDB(importedDB);
+          await saveAppDB(importedDB);
+          setDialog({ type: 'alert', message: 'นำเข้าข้อมูลและบันทึกขึ้นระบบออนไลน์สำเร็จ!' });
+        } else {
+          setDialog({ type: 'alert', message: 'ไฟล์ไม่ถูกต้อง หรือโครงสร้างข้อมูลไม่ตรงกัน' });
+        }
+      } catch (err) {
+        setDialog({ type: 'alert', message: 'เกิดข้อผิดพลาดในการอ่านไฟล์ JSON' });
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = ''; // Reset
+  };
+
   const handleImageUpload = (callback) => async (e) => {
     const file = e.target.files[0];
     if (file) {
@@ -302,9 +383,8 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
       const file = files[i];
       setBulkProgress(`(${i + 1}/${files.length})`);
 
-      // webkitRelativePath format: "FolderName/ImageName.jpg"
       const pathParts = file.webkitRelativePath.split('/');
-      if (pathParts.length < 2) continue; // Skip if not in a folder
+      if (pathParts.length < 2) continue; 
 
       const folderName = pathParts[pathParts.length - 2].toUpperCase();
       const fileNameWithoutExt = pathParts[pathParts.length - 1].replace(/\.[^/.]+$/, "").toUpperCase();
@@ -324,7 +404,7 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
     setAppDB(newDB);
     setIsUploadingBulk(false);
     setBulkProgress('');
-    e.target.value = ''; // Reset input
+    e.target.value = '';
     setDialog({ type: 'alert', message: `อัปโหลดแบบกลุ่มสำเร็จ ${successCount} รายการ` });
   };
 
@@ -650,9 +730,19 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
             )}
           </div>
         </div>
-        <div className="p-4 border-t bg-gray-50 flex justify-end gap-2">
-           <button onClick={() => setShowDBSettings(false)} className="px-6 py-2 rounded font-bold text-gray-600 hover:bg-gray-200">ปิด</button>
-           <button onClick={handleSaveAndClose} className="bg-blue-600 text-white px-6 py-2 rounded font-bold hover:bg-blue-700 shadow">บันทึกฐานข้อมูลออนไลน์</button>
+        <div className="p-4 border-t bg-gray-50 flex flex-wrap justify-between items-center gap-2">
+           <div className="flex gap-2">
+               <button onClick={handleRecoverLocal} className="text-orange-600 hover:bg-orange-50 px-3 py-2 rounded font-bold text-xs md:text-sm">⚠️ กู้คืนข้อมูล (Local)</button>
+               <button onClick={handleExportDB} className="bg-emerald-50 text-emerald-600 hover:bg-emerald-100 border border-emerald-200 px-3 py-2 rounded font-bold text-xs md:text-sm flex items-center"><Download size={14} className="mr-1"/> Export สำรองข้อมูล</button>
+               <label className="bg-sky-50 text-sky-600 hover:bg-sky-100 border border-sky-200 px-3 py-2 rounded font-bold text-xs md:text-sm flex items-center cursor-pointer">
+                  <Upload size={14} className="mr-1"/> Import ข้อมูล
+                  <input type="file" accept=".json" className="hidden" onChange={handleImportDB} />
+               </label>
+           </div>
+           <div className="flex gap-2 mt-2 md:mt-0 w-full md:w-auto justify-end">
+               <button onClick={() => setShowDBSettings(false)} className="px-6 py-2 rounded font-bold text-gray-600 hover:bg-gray-200">ปิด</button>
+               <button onClick={handleSaveAndClose} className="bg-blue-600 text-white px-6 py-2 rounded font-bold hover:bg-blue-700 shadow">บันทึกฐานข้อมูลออนไลน์</button>
+           </div>
         </div>
       </div>
     </div>
@@ -660,45 +750,63 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
 };
 
 // --- Component: User Management Modal ---
-const UserManagementModal = ({ show, onClose, setDialog }) => {
-  const [accounts, setAccounts] = useState([]);
+const UserManagementModal = ({ show, onClose, setDialog, allAccounts, setAllAccounts }) => {
   const [newN, setNewN] = useState('');
   const [newU, setNewU] = useState('');
   const [newP, setNewP] = useState('');
   const [newR, setNewR] = useState('user');
-
-  useEffect(() => {
-    if(!show) return;
-    const fetchAcc = async () => {
-      const snap = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'accounts'));
-      if(snap.exists() && snap.data().users) setAccounts(snap.data().users);
-      else setAccounts(DEFAULT_ACCOUNTS);
-    };
-    fetchAcc();
-  }, [show]);
+  const [newSig, setNewSig] = useState('');
+  const [isUploadingSig, setIsUploadingSig] = useState(false);
 
   const saveAcc = async (newAccounts) => {
     await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'accounts'), { users: newAccounts });
-    setAccounts(newAccounts);
+    setAllAccounts(newAccounts);
   };
 
   const handleAdd = () => {
     if(!newN || !newU || !newP) return setDialog({ type: 'alert', message: 'กรุณากรอก ชื่อ, Username และ Password ให้ครบถ้วน' });
-    if(accounts.find(a => a.username === newU)) return setDialog({ type: 'alert', message: 'Username นี้มีอยู่แล้ว' });
-    const newAcc = [...accounts, { id: Date.now().toString(), username: newU, password: newP, role: newR, name: newN }];
+    if(allAccounts.find(a => a.username === newU)) return setDialog({ type: 'alert', message: 'Username นี้มีอยู่แล้ว' });
+    const newAcc = [...allAccounts, { id: Date.now().toString(), username: newU, password: newP, role: newR, name: newN, signatureUrl: newSig }];
     saveAcc(newAcc);
-    setNewN(''); setNewU(''); setNewP('');
+    setNewN(''); setNewU(''); setNewP(''); setNewSig('');
   };
 
   const handleDel = (id) => {
-    if(accounts.find(a=>a.id===id).username === 'Admin') return setDialog({ type: 'alert', message: 'ลบบัญชี Admin หลักไม่ได้' });
-    saveAcc(accounts.filter(a => a.id !== id));
+    if(allAccounts.find(a=>a.id===id).username === 'Admin') return setDialog({ type: 'alert', message: 'ลบบัญชี Admin หลักไม่ได้' });
+    saveAcc(allAccounts.filter(a => a.id !== id));
+  };
+
+  const handleSigUpload = async (e, accountId = null) => {
+    const file = e.target.files[0];
+    if(file){
+       setIsUploadingSig(true);
+       const cmp = await processImageFile(file, 600, 0.8, setDialog);
+       if(cmp){
+          const transparent = await removeWhiteBackground(cmp);
+          const url = await uploadImageToImgBB(transparent);
+          if(url) {
+             if(accountId) {
+                 // อัปเดตลายเซ็นให้พนักงานที่มีอยู่แล้ว
+                 const updatedAccounts = allAccounts.map(acc => 
+                     acc.id === accountId ? { ...acc, signatureUrl: url } : acc
+                 );
+                 saveAcc(updatedAccounts);
+                 setDialog({ type: 'alert', message: 'อัปเดตลายเซ็นสำเร็จ' });
+             } else {
+                 // สำหรับฟอร์มเพิ่มพนักงานใหม่
+                 setNewSig(url);
+             }
+          }
+          else setDialog({ type: 'alert', message: 'อัปโหลดลายเซ็นต์ไม่สำเร็จ' });
+       }
+       setIsUploadingSig(false);
+    }
   };
 
   if(!show) return null;
   return (
     <div className="fixed inset-0 bg-black/60 z-[100000] flex items-center justify-center p-4">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl flex flex-col overflow-hidden">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl flex flex-col overflow-hidden">
         <div className="flex justify-between items-center p-4 border-b bg-gray-50">
           <h2 className="text-lg font-bold flex items-center"><Users className="mr-2"/> จัดการพนักงาน</h2>
           <button onClick={onClose} className="text-gray-500 hover:text-red-500"><X size={20}/></button>
@@ -706,22 +814,48 @@ const UserManagementModal = ({ show, onClose, setDialog }) => {
         <div className="p-4 flex flex-col gap-4">
           <div className="flex flex-col md:flex-row gap-2 md:items-end bg-blue-50 p-3 rounded border border-blue-100">
             <div className="flex-1"><label className="text-xs font-bold block">ชื่อ-นามสกุล</label><input type="text" value={newN} onChange={e=>setNewN(e.target.value)} className="w-full border p-1.5 rounded text-sm"/></div>
-            <div className="flex-1 md:flex-[0.8]"><label className="text-xs font-bold block">Username</label><input type="text" value={newU} onChange={e=>setNewU(e.target.value)} className="w-full border p-1.5 rounded text-sm"/></div>
-            <div className="flex-1 md:flex-[0.8]"><label className="text-xs font-bold block">Password</label><input type="text" value={newP} onChange={e=>setNewP(e.target.value)} className="w-full border p-1.5 rounded text-sm"/></div>
+            <div className="flex-1 md:flex-[0.6]"><label className="text-xs font-bold block">Username</label><input type="text" value={newU} onChange={e=>setNewU(e.target.value)} className="w-full border p-1.5 rounded text-sm"/></div>
+            <div className="flex-1 md:flex-[0.6]"><label className="text-xs font-bold block">Password</label><input type="text" value={newP} onChange={e=>setNewP(e.target.value)} className="w-full border p-1.5 rounded text-sm"/></div>
             <div><label className="text-xs font-bold block">สิทธิ์</label><select value={newR} onChange={e=>setNewR(e.target.value)} className="w-full border p-1.5 rounded text-sm"><option value="user">User</option><option value="admin">Admin</option></select></div>
-            <button onClick={handleAdd} className="bg-green-600 text-white px-4 py-1.5 rounded text-sm font-bold shadow w-full md:w-auto mt-2 md:mt-0">เพิ่ม</button>
+            <div className="flex-1 md:flex-[0.8]"><label className="text-xs font-bold block text-indigo-700">ลายเซ็นต์ (กระดาษขาว)</label>
+               <label className={`w-full border border-indigo-300 p-1.5 rounded text-xs flex justify-center items-center font-bold transition-colors ${isUploadingSig ? 'opacity-50 cursor-wait bg-gray-200' : 'bg-white hover:bg-indigo-50 text-indigo-700 cursor-pointer'}`}>
+                 {isUploadingSig ? 'กำลังอัปโหลด...' : (newSig ? '✔️ มีรูปแล้ว (คลิกเปลี่ยน)' : '+ เลือกรูป')}
+                 <input type="file" accept="image/*" className="hidden" disabled={isUploadingSig} onChange={(e) => handleSigUpload(e)} />
+               </label>
+            </div>
+            <button onClick={handleAdd} className="bg-green-600 hover:bg-green-700 text-white px-4 py-1.5 rounded text-sm font-bold shadow w-full md:w-auto mt-2 md:mt-0 transition-colors">เพิ่ม</button>
           </div>
-          <div className="border rounded overflow-hidden max-h-[300px] overflow-x-auto overflow-y-auto">
-            <table className="w-full text-sm text-left min-w-[500px]">
-              <thead className="bg-gray-800 text-white sticky top-0"><tr><th className="p-2">ชื่อพนักงาน</th><th className="p-2">Username</th><th className="p-2">Password</th><th className="p-2">Role</th><th className="p-2 text-center">ลบ</th></tr></thead>
+          <div className="border rounded overflow-hidden max-h-[400px] overflow-x-auto overflow-y-auto">
+            <table className="w-full text-sm text-left min-w-[700px]">
+              <thead className="bg-gray-800 text-white sticky top-0 z-10">
+                <tr>
+                  <th className="p-2 w-24 text-center">ลายเซ็นต์</th>
+                  <th className="p-2">ชื่อพนักงาน</th>
+                  <th className="p-2">Username</th>
+                  <th className="p-2">Password</th>
+                  <th className="p-2">Role</th>
+                  <th className="p-2 text-center">ลบ</th>
+                </tr>
+              </thead>
               <tbody>
-                {accounts.map(acc => (
+                {allAccounts.map(acc => (
                   <tr key={acc.id} className="border-b hover:bg-gray-50">
-                    <td className="p-2">{acc.name || '-'}</td>
-                    <td className="p-2 font-bold">{acc.username}</td>
-                    <td className="p-2 text-gray-600">{acc.password}</td>
+                    <td className="p-2 flex flex-col items-center justify-center gap-1">
+                      {acc.signatureUrl ? (
+                         <img src={acc.signatureUrl} className="h-8 object-contain mix-blend-multiply" alt="sig"/>
+                      ) : (
+                         <span className="text-gray-300 text-xs">-</span>
+                      )}
+                      <label className="text-[10px] text-blue-600 hover:text-blue-800 cursor-pointer font-bold bg-blue-50 px-2 py-0.5 rounded border border-blue-200 w-full text-center">
+                        เปลี่ยนลายเซ็น
+                        <input type="file" accept="image/*" className="hidden" onChange={(e) => handleSigUpload(e, acc.id)} />
+                      </label>
+                    </td>
+                    <td className="p-2 font-bold text-gray-800">{acc.name || '-'}</td>
+                    <td className="p-2 text-gray-600">{acc.username}</td>
+                    <td className="p-2 text-gray-500">{acc.password}</td>
                     <td className="p-2">{acc.role === 'admin' ? <span className="text-blue-600 font-bold">Admin</span> : 'User'}</td>
-                    <td className="p-2 text-center"><button onClick={()=>handleDel(acc.id)} className="text-red-500 hover:text-red-700"><Trash2 size={16}/></button></td>
+                    <td className="p-2 text-center"><button onClick={()=>handleDel(acc.id)} className="text-red-500 hover:text-red-700 hover:bg-red-50 p-1.5 rounded transition-colors"><Trash2 size={16}/></button></td>
                   </tr>
                 ))}
               </tbody>
@@ -850,7 +984,7 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
       window.removeEventListener('mousemove', handleGlobalPointMove);
       window.removeEventListener('touchmove', handleGlobalPointMove);
       window.removeEventListener('mouseup', handleGlobalPointUp);
-      window.removeEventListener('touchend', handleGlobalPointUp);
+      window.removeEventListener('touchmove', handleGlobalPointUp);
     }
   }, [pointDrag, pan, zoom, item.areas, item.id]);
 
@@ -1018,9 +1152,9 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
       >
         {item.image ? (
           <>
-            <div style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: '0 0' }} className={`w-full h-full relative transition-transform duration-75 ease-out ${(item.imageFit || 'fill') === 'fit' ? 'bg-white' : ''}`}>
-              <div ref={containerRef} className="relative flex items-center justify-center w-full h-full">
-                <img src={item.image} alt="Window view" className={`w-full h-full pointer-events-none ${(item.imageFit || 'fill') === 'fit' ? 'object-contain' : 'object-cover'}`} />
+            <div style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: '0 0' }} className={`w-full h-full absolute top-0 left-0 flex items-center justify-center transition-transform duration-75 ease-out ${(item.imageFit || 'fill') === 'fit' ? 'bg-white' : ''}`}>
+              <div ref={containerRef} className="relative flex items-center justify-center w-full h-full max-w-full max-h-full">
+                <img src={item.image} alt="Window view" className={`w-full h-full pointer-events-none block ${(item.imageFit || 'fill') === 'fit' ? 'object-contain' : 'object-cover'}`} />
                 
                 <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none">
                   <defs>
@@ -1394,10 +1528,12 @@ const App = () => {
   const [showUserMgmt, setShowUserMgmt] = useState(false);
   const [showCustomFabricModal, setShowCustomFabricModal] = useState(false);
   const [dialog, setDialog] = useState(null);
+  const [allAccounts, setAllAccounts] = useState(DEFAULT_ACCOUNTS);
 
   const [generalInfo, setGeneralInfo] = useState({
     surveyDate: new Date().toISOString().split('T')[0], confirmDate: '', installDates: [], location: '',
     customerName: '', customerPhone: '', agentName: '', agentPhone: '', customFabrics: [],
+    creatorName: '', creatorSignature: '',
     terms: `กรณีมีการเปลี่ยนแปลงรายละเอียดจากที่ตกลงไว้ในใบสรุปงานติดตั้งผ้าม่านนี้ ผู้สั่งซื้อยินยอมที่จะชำระเงินเพิ่มในส่วนของ\n(A) ค่าแก้ไขผ้าม่านและอุปกรณ์ เช่น ความสูง ความกว้างของผ้าม่าน รางม่าน ที่เกิดจากหน้างานเปลี่ยนแปลง บิ้วท์อินเพิ่มเติม ฯลฯ\n(B) ค่าติดตั้งรางละ 200 บาท\n(C) ค่าเดินทาง 1,500 บาท ใน กทม. (ต่างจังหวัดคิดตามระยะทาง)\nการเลื่อนคิวงานติตตั้ง ขอความกรุณาลูกค้าแจ้งพนักงานขายก่อนวันติดตั้ง อย่างน้อย 5 วันทำการ ถ้าน้อยกว่า 5 วัน จะมีค่าดำเนินการ 3,000 บาท / ครั้ง\nบริษัทฯ จะรับผิดชอบดำเนินการแก้ไขงาน ในกรณีที่ความผิดพลาดเกิดจากบริษัทฯ เท่านั้น`
   });
   const [tempInstallDate, setTempInstallDate] = useState('');
@@ -1422,6 +1558,16 @@ const App = () => {
     return () => unsubscribe();
   }, []);
 
+  useEffect(() => {
+    if (!firebaseUser) return;
+    const fetchAcc = async () => {
+      const snap = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'accounts'));
+      if(snap.exists() && snap.data().users) setAllAccounts(snap.data().users);
+      else setAllAccounts(DEFAULT_ACCOUNTS);
+    };
+    fetchAcc();
+  }, [firebaseUser]);
+
   const loadProjectsList = async () => {
     if (!firebaseUser || !appUser) return;
     try {
@@ -1439,7 +1585,7 @@ const App = () => {
     if (firebaseUser && appUser && view === 'dashboard') loadProjectsList();
   }, [firebaseUser, appUser, view]);
 
-  // Real-time DB Sync Fix - 100% Online Only
+  // Real-time DB Sync Fix - 100% Online Only with Recovery
   useEffect(() => {
     if (!firebaseUser || !appUser) return;
     const settingsRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'appDB');
@@ -1447,10 +1593,14 @@ const App = () => {
       if (snap.exists() && snap.data() && Object.keys(snap.data()).length > 0) {
         const mergedDB = { ...DEFAULT_DB, ...snap.data() };
         setAppDB(mergedDB);
+        localStorage.setItem('backupAppDB', JSON.stringify(mergedDB)); // Save backup to device
       } else {
-        setAppDB(DEFAULT_DB);
-        // Initialize online db if it doesn't exist
-        setDoc(settingsRef, DEFAULT_DB).catch(console.error);
+        const localBackup = localStorage.getItem('backupAppDB');
+        if(localBackup) {
+           setAppDB(JSON.parse(localBackup));
+        } else {
+           setAppDB(DEFAULT_DB);
+        }
       }
     }, (err) => {
       console.error("DB Sync Error:", err);
@@ -1482,9 +1632,13 @@ const App = () => {
 
   const handleCreateNew = () => {
     setCurrentProjectId(Date.now().toString());
+    const currentUserInfo = allAccounts.find(u => u.username === appUser.username) || appUser;
+    
     setGeneralInfo({
       surveyDate: new Date().toISOString().split('T')[0], confirmDate: '', installDates: [], location: '',
       customerName: '', customerPhone: '', agentName: '', agentPhone: '', customFabrics: [],
+      creatorName: currentUserInfo.name || currentUserInfo.username,
+      creatorSignature: currentUserInfo.signatureUrl || '',
       terms: `กรณีมีการเปลี่ยนแปลงรายละเอียดจากที่ตกลงไว้ในใบสรุปงานติดตั้งผ้าม่านนี้ ผู้สั่งซื้อยินยอมที่จะชำระเงินเพิ่มในส่วนของ\n(A) ค่าแก้ไขผ้าม่านและอุปกรณ์ เช่น ความสูง ความกว้างของผ้าม่าน รางม่าน ที่เกิดจากหน้างานเปลี่ยนแปลง บิ้วท์อินเพิ่มเติม ฯลฯ\n(B) ค่าติดตั้งรางละ 200 บาท\n(C) ค่าเดินทาง 1,500 บาท ใน กทม. (ต่างจังหวัดคิดตามระยะทาง)\nการเลื่อนคิวงานติตตั้ง ขอความกรุณาลูกค้าแจ้งพนักงานขายก่อนวันติดตั้ง อย่างน้อย 5 วันทำการ ถ้าน้อยกว่า 5 วัน จะมีค่าดำเนินการ 3,000 บาท / ครั้ง\nบริษัทฯ จะรับผิดชอบดำเนินการแก้ไขงาน ในกรณีที่ความผิดพลาดเกิดจากบริษัทฯ เท่านั้น`
     });
     setItems([]);
@@ -1494,7 +1648,13 @@ const App = () => {
 
   const handleEdit = (proj) => {
     setCurrentProjectId(proj.id);
-    setGeneralInfo({ ...proj.generalInfo, customFabrics: proj.generalInfo?.customFabrics || [] });
+    const fallbackCreatorName = proj.owner || appUser.name || appUser.username;
+    setGeneralInfo({ 
+       ...proj.generalInfo, 
+       customFabrics: proj.generalInfo?.customFabrics || [],
+       creatorName: proj.generalInfo?.creatorName || fallbackCreatorName,
+       creatorSignature: proj.generalInfo?.creatorSignature || ''
+    });
     const migratedItems = (proj.items || []).map(item => ({
       ...item,
       layers: item.layers || 2,
@@ -1520,7 +1680,7 @@ const App = () => {
 
   const saveData = async () => {
     if (!firebaseUser) return;
-    setSaving(true); setSaveStatus('บันทึกสำเร็จ!');
+    setSaving(true); setSaveStatus('กำลังบันทึก...');
     try {
       const pId = currentProjectId || Date.now().toString();
       const projData = { 
@@ -1529,7 +1689,7 @@ const App = () => {
       };
       await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'projects', pId), projData);
       setCurrentProjectId(pId);
-      setTimeout(() => setSaveStatus(''), 3000);
+      setSaveStatus('บันทึกสำเร็จ!'); setTimeout(() => setSaveStatus(''), 3000);
     } catch (err) { setSaveStatus('เกิดข้อผิดพลาด'); }
     setSaving(false);
   };
@@ -1544,6 +1704,17 @@ const App = () => {
   };
 
   const handleGeneralChange = (e) => setGeneralInfo(prev => ({ ...prev, [e.target.name]: e.target.value }));
+  
+  const handleCreatorChange = (e) => {
+    const val = e.target.value;
+    const u = allAccounts.find(acc => (acc.name || acc.username) === val);
+    setGeneralInfo(prev => ({
+      ...prev,
+      creatorName: val,
+      creatorSignature: u ? (u.signatureUrl || '') : prev.creatorSignature
+    }));
+  };
+
   const addInstallDate = () => { if (tempInstallDate && !generalInfo.installDates.includes(tempInstallDate)) { setGeneralInfo(prev => ({ ...prev, installDates: [...prev.installDates, tempInstallDate] })); setTempInstallDate(''); } };
   const removeInstallDate = (date) => setGeneralInfo(prev => ({ ...prev, installDates: prev.installDates.filter(d => d !== date) }));
 
@@ -1653,7 +1824,7 @@ const App = () => {
     return (
       <div className="min-h-screen bg-gray-100 p-8 font-sans">
         <AlertDialog dialog={dialog} onClose={() => setDialog(null)} />
-        <UserManagementModal show={showUserMgmt} onClose={()=>setShowUserMgmt(false)} setDialog={setDialog} />
+        <UserManagementModal show={showUserMgmt} onClose={()=>setShowUserMgmt(false)} setDialog={setDialog} allAccounts={allAccounts} setAllAccounts={setAllAccounts} />
         <div className="max-w-6xl mx-auto">
           <div className="flex justify-between items-center bg-white p-4 rounded-lg shadow-sm mb-6 border-b-4 border-blue-600">
             <div>
@@ -1732,6 +1903,8 @@ const App = () => {
             max-width: 277mm !important; /* Width of A4 (297mm) minus margins */
           }
           
+          .print-transform-none { transform: none !important; }
+          
           /* Utility wrappers for text */
           .whitespace-pre-wrap { white-space: pre-wrap !important; word-break: break-word !important; }
           
@@ -1772,9 +1945,34 @@ const App = () => {
                     <div className="hidden print-block w-full mt-1 text-[15px] font-bold whitespace-pre-wrap text-black border-b border-gray-300 pb-1">{generalInfo.location || '-'}</div>
                   </div>
                 </div>
-                <div className="mt-6 text-center"><p className="border-b border-gray-400 w-48 mx-auto mb-1"></p><p className="text-gray-600 text-sm font-bold">ผู้จัดทำ</p></div>
+                
+                {/* Creator & Signature Section */}
+                <div className="mt-8 flex flex-col items-center justify-end relative h-20">
+                  {generalInfo.creatorSignature && (
+                    <img src={generalInfo.creatorSignature} className="absolute bottom-5 h-16 object-contain pointer-events-none mix-blend-multiply" alt="signature" />
+                  )}
+                  {appUser.role === 'admin' ? (
+                    <select 
+                       value={generalInfo.creatorName || ''} 
+                       onChange={handleCreatorChange} 
+                       className="border-b border-gray-400 w-48 text-center text-[15px] font-bold text-blue-800 outline-none appearance-none bg-transparent cursor-pointer print-hidden relative z-10 pb-0.5"
+                    >
+                      <option value="">- ระบุผู้จัดทำ -</option>
+                      {allAccounts.map(a => <option key={a.id} value={a.name || a.username}>{a.name || a.username}</option>)}
+                    </select>
+                  ) : (
+                    <div className="border-b border-gray-400 w-48 text-center text-[15px] font-bold text-blue-800 print-hidden relative z-10 pb-0.5">
+                      {generalInfo.creatorName || '-'}
+                    </div>
+                  )}
+                  <div className="hidden print-block w-48 text-center text-[15px] font-bold border-b border-gray-400 pb-0.5 text-black relative z-10">
+                    {generalInfo.creatorName || '-'}
+                  </div>
+                  <p className="text-gray-600 text-sm font-bold mt-1">ผู้จัดทำ</p>
+                </div>
               </div>
-              <div className="p-4 border border-gray-300 rounded-md bg-blue-50/30">
+
+              <div className="p-4 border border-gray-300 rounded-md bg-blue-50/30 flex flex-col">
                 <h2 className="font-bold mb-3 border-b border-gray-300 pb-1 inline-block text-base text-gray-800">ส่วนลูกค้า</h2>
                 <div className="space-y-2.5">
                   <div className="flex items-center"><span className="w-32 font-bold text-gray-700">ชื่อ-นามสกุล :</span><input type="text" name="customerName" value={generalInfo.customerName} onChange={handleGeneralChange} className="flex-1 border-b border-gray-300 outline-none focus:border-blue-500 px-1 font-bold text-blue-800 text-[15px] print:text-black bg-transparent" /></div>
@@ -1782,7 +1980,10 @@ const App = () => {
                   <div className="flex items-center mt-4"><span className="w-32 font-bold text-gray-700">ผู้ติดต่อแทน :</span><input type="text" name="agentName" value={generalInfo.agentName} onChange={handleGeneralChange} className="flex-1 border-b border-gray-300 outline-none focus:border-blue-500 px-1 font-medium bg-transparent" /></div>
                   <div className="flex items-center"><span className="w-32 font-bold text-gray-700">เบอร์ติดต่อ :</span><input type="text" name="agentPhone" value={generalInfo.agentPhone} onChange={handleGeneralChange} className="flex-1 border-b border-gray-300 outline-none focus:border-blue-500 px-1 font-medium bg-transparent" /></div>
                 </div>
-                <div className="mt-8 text-center"><p className="border-b border-gray-400 w-48 mx-auto mb-1"></p><p className="text-gray-600 text-sm font-bold">ผู้สั่งซื้อ</p></div>
+                <div className="mt-auto pt-8 text-center flex flex-col items-center justify-end h-20">
+                  <p className="border-b border-gray-400 w-48 mx-auto mb-1"></p>
+                  <p className="text-gray-600 text-sm font-bold">ผู้สั่งซื้อ</p>
+                </div>
               </div>
             </div>
 

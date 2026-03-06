@@ -74,32 +74,56 @@ const AlertDialog = ({ dialog, onClose }) => {
   );
 };
 
-// --- Utility: ImgBB Upload Function ---
-const uploadImageToImgBB = async (base64Str) => {
+// --- Utility: Delay Function for Rate Limiting ---
+const delay = (ms) => new Promise((res) => setTimeout(res, ms));
+
+// --- Utility: ImgBB Upload Function with Retry ---
+const uploadImageToImgBB = async (base64Str, retries = 3, retryDelay = 3000) => {
   if (!IMGBB_API_KEY || IMGBB_API_KEY === "ใส่_API_KEY_ของคุณที่นี่") {
     alert("กรุณาใส่ IMGBB API KEY ในโค้ดบรรทัดที่ 18 ก่อนอัปโหลดรูปภาพ");
     return null;
   }
-  try {
-    const base64Data = base64Str.split(',')[1];
-    const formData = new FormData();
-    formData.append("image", base64Data);
+  
+  for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        const base64Data = base64Str.split(',')[1];
+        const formData = new FormData();
+        formData.append("image", base64Data);
 
-    const res = await fetch(`https://api.imgbb.com/1/upload?key=${IMGBB_API_KEY}`, {
-      method: "POST",
-      body: formData
-    });
-    const data = await res.json();
-    if (data.success) {
-      return data.data.url;
-    } else {
-      console.error("ImgBB Error:", data);
-      return null;
-    }
-  } catch (e) {
-    console.error("Upload failed", e);
-    return null;
+        const res = await fetch(`https://api.imgbb.com/1/upload?key=${IMGBB_API_KEY}`, {
+          method: "POST",
+          body: formData
+        });
+        
+        const data = await res.json();
+        
+        if (data.success) {
+          return data.data.url;
+        } else {
+            if (data.error && data.error.message === "Rate limit reached.") {
+                if (attempt < retries) {
+                    console.warn(`ImgBB Rate Limit Reached. Attempt ${attempt + 1}/${retries + 1}. Retrying in ${retryDelay * (attempt + 1)}ms...`);
+                    await delay(retryDelay * (attempt + 1)); // Exponential backoff
+                    continue;
+                } else {
+                    throw new Error("RATE_LIMIT_REACHED");
+                }
+            }
+          console.error("ImgBB Error:", data);
+          return null; 
+        }
+      } catch (e) {
+          if (e.message === "RATE_LIMIT_REACHED") throw e;
+          if (attempt < retries) {
+               console.warn(`Upload failed. Attempt ${attempt + 1}/${retries + 1}. Retrying in ${retryDelay * (attempt + 1)}ms...`, e);
+               await delay(retryDelay * (attempt + 1));
+               continue;
+          }
+          console.error("Upload completely failed", e);
+          return null;
+      }
   }
+  return null;
 };
 
 // --- Utility: Background Removal for Signatures ---
@@ -200,12 +224,18 @@ const CustomFabricModal = ({ show, onClose, onAdd, setDialog }) => {
     setLoading(true);
     const compressed = await processImageFile(f, 400, 0.7, setDialog);
     if (compressed) {
-      const imgUrl = await uploadImageToImgBB(compressed);
-      if(imgUrl) {
-        onAdd({ id: Date.now().toString(), mainType: 'ผ้านอกระบบ (เฉพาะงานนี้)', subType, name, color, image: imgUrl });
-        onClose();
-      } else {
-        setDialog({ type: 'alert', message: 'อัปโหลดรูปภาพไม่สำเร็จ กรุณาลองใหม่' });
+      try {
+        const imgUrl = await uploadImageToImgBB(compressed);
+        if(imgUrl) {
+          onAdd({ id: Date.now().toString(), mainType: 'ผ้านอกระบบ (เฉพาะงานนี้)', subType, name, color, image: imgUrl });
+          onClose();
+        } else {
+          setDialog({ type: 'alert', message: 'อัปโหลดรูปภาพไม่สำเร็จ กรุณาลองใหม่' });
+        }
+      } catch (err) {
+        if (err.message === "RATE_LIMIT_REACHED") {
+            setDialog({ type: 'alert', message: 'ระบบโควต้าอัปโหลดรูปภาพเต็มชั่วคราว (Rate Limit) กรุณารอสักพักแล้วลองใหม่' });
+        }
       }
     }
     setLoading(false);
@@ -359,15 +389,20 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
       setIsUploading(true);
       const compressed = await processImageFile(file, 600, 0.7, setDialog);
       if(compressed) {
-        const url = await uploadImageToImgBB(compressed);
-        if(url) callback(url);
-        else setDialog({ type: 'alert', message: 'อัปโหลดล้มเหลว กรุณาลองใหม่' });
+        try {
+            const url = await uploadImageToImgBB(compressed);
+            if(url) callback(url);
+            else setDialog({ type: 'alert', message: 'อัปโหลดล้มเหลว กรุณาลองใหม่' });
+        } catch (err) {
+            if (err.message === "RATE_LIMIT_REACHED") {
+                setDialog({ type: 'alert', message: 'ระบบโควต้าอัปโหลดรูปภาพเต็มชั่วคราว (Rate Limit) กรุณารอสักพักแล้วลองใหม่' });
+            }
+        }
       }
       setIsUploading(false);
     }
   };
 
-  // --- อัปเกรดให้ประมวลผลคู่ขนาน (Batch Process) โฟลเดอร์จะเยอะแค่ไหนก็ไวขึ้น ---
   const handleBulkUpload = async (e) => {
     const files = Array.from(e.target.files).filter(f => f.type.startsWith('image/') || f.name.toLowerCase().match(/\.(heic|heif)$/i));
     if (files.length === 0) return;
@@ -380,50 +415,58 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
     let successCount = 0;
     let newDB = JSON.parse(JSON.stringify(appDB));
     const totalFiles = files.length;
-    const batchSize = 3; // อัปโหลดพร้อมกันทีละ 3 รูป ป้องกัน API ของ ImgBB ตัดการเชื่อมต่อ
+    let rateLimitHit = false;
+    
+    // Process files serially to strictly respect ImgBB rate limits
+    for (let i = 0; i < totalFiles; i++) {
+        const file = files[i];
+        setBulkProgress(`(${i + 1}/${totalFiles})`);
 
-    for (let i = 0; i < totalFiles; i += batchSize) {
-      const batch = files.slice(i, i + batchSize);
-      
-      // ประมวลผลและอัปโหลดใน Batch แบบขนาน (Parallel)
-      const uploadPromises = batch.map(async (file) => {
-        const pathParts = file.webkitRelativePath.split('/');
-        if (pathParts.length < 2) return null; 
+        const pathParts = file.webkitRelativePath ? file.webkitRelativePath.split('/') : [file.name];
+        
+        let folderName = "";
+        let fileNameWithoutExt = file.name.replace(/\.[^/.]+$/, "").toUpperCase();
 
-        const folderName = pathParts[pathParts.length - 2].toUpperCase();
-        const fileNameWithoutExt = pathParts[pathParts.length - 1].replace(/\.[^/.]+$/, "").toUpperCase();
+        if (pathParts.length > 1) {
+            folderName = pathParts[pathParts.length - 2].toUpperCase();
+        } else {
+            folderName = "ไม่ระบุรุ่น";
+        }
 
         const compressedImg = await processImageFile(file, 400, 0.7, null); 
         if (compressedImg) {
-          const url = await uploadImageToImgBB(compressedImg);
-          if (url) {
-            return { folderName, fileNameWithoutExt, url };
+          // Delay to respect API limits (2 seconds between each to be safe)
+          if (i > 0) {
+              await delay(2000); 
+          }
+          
+          try {
+              const url = await uploadImageToImgBB(compressedImg);
+              if (url) {
+                if (!newDB.curtainTypes[cat][type]) newDB.curtainTypes[cat][type] = {};
+                if (!newDB.curtainTypes[cat][type][folderName]) newDB.curtainTypes[cat][type][folderName] = {};
+                newDB.curtainTypes[cat][type][folderName][fileNameWithoutExt] = url;
+                successCount++;
+              }
+          } catch (err) {
+              if (err.message === "RATE_LIMIT_REACHED") {
+                  rateLimitHit = true;
+                  break; // Abort the loop completely
+              }
           }
         }
-        return null;
-      });
-
-      const results = await Promise.all(uploadPromises);
-
-      // นำผลลัพธ์มาใส่ใน Database
-      results.forEach(result => {
-        if (result) {
-          const { folderName, fileNameWithoutExt, url } = result;
-          if (!newDB.curtainTypes[cat][type]) newDB.curtainTypes[cat][type] = {};
-          if (!newDB.curtainTypes[cat][type][folderName]) newDB.curtainTypes[cat][type][folderName] = {};
-          newDB.curtainTypes[cat][type][folderName][fileNameWithoutExt] = url;
-          successCount++;
-        }
-      });
-      
-      setBulkProgress(`(${Math.min(i + batchSize, totalFiles)}/${totalFiles})`);
     }
 
     setAppDB(newDB);
     setIsUploadingBulk(false);
     setBulkProgress('');
     e.target.value = ''; // Reset input
-    setDialog({ type: 'alert', message: `อัปโหลดแบบกลุ่มสำเร็จ ${successCount} รายการ` });
+    
+    if (rateLimitHit) {
+        setDialog({ type: 'alert', message: `ระบบโควต้าอัปโหลดรูปภาพเต็ม (Rate Limit)\n\nอัปโหลดสำเร็จไปแล้ว ${successCount}/${totalFiles} รายการ\nกรุณารอสักพัก (หรือลองใหม่วันพรุ่งนี้) แล้วค่อยอัปโหลดส่วนที่เหลือครับ` });
+    } else {
+        setDialog({ type: 'alert', message: `อัปโหลดแบบกลุ่มสำเร็จ ${successCount} รายการ` });
+    }
   };
 
   const addFabricType = (newType) => {
@@ -467,18 +510,24 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
       setIsUploading(true);
       const compressedImg = await processImageFile(f, 400, 0.7, setDialog);
       if(compressedImg) {
-        const url = await uploadImageToImgBB(compressedImg);
-        if(url) {
-          const newDB = JSON.parse(JSON.stringify(appDB));
-          if(!newDB.curtainTypes[cat][type]) newDB.curtainTypes[cat][type] = {};
-          if(!newDB.curtainTypes[cat][type][n]) newDB.curtainTypes[cat][type][n] = {};
-          newDB.curtainTypes[cat][type][n][c] = url;
-          setAppDB(newDB);
-          document.getElementById('addFabName').value=''; 
-          document.getElementById('addFabColor').value=''; 
-          document.getElementById('addFabImg').value='';
-        } else {
-          setDialog({ type: 'alert', message: "อัปโหลดรูปล้มเหลว" });
+        try {
+            const url = await uploadImageToImgBB(compressedImg);
+            if(url) {
+              const newDB = JSON.parse(JSON.stringify(appDB));
+              if(!newDB.curtainTypes[cat][type]) newDB.curtainTypes[cat][type] = {};
+              if(!newDB.curtainTypes[cat][type][n]) newDB.curtainTypes[cat][type][n] = {};
+              newDB.curtainTypes[cat][type][n][c] = url;
+              setAppDB(newDB);
+              document.getElementById('addFabName').value=''; 
+              document.getElementById('addFabColor').value=''; 
+              document.getElementById('addFabImg').value='';
+            } else {
+              setDialog({ type: 'alert', message: "อัปโหลดรูปล้มเหลว" });
+            }
+        } catch (err) {
+            if (err.message === "RATE_LIMIT_REACHED") {
+                setDialog({ type: 'alert', message: "ระบบโควต้าอัปโหลดรูปภาพเต็มชั่วคราว (Rate Limit) กรุณารอสักพักแล้วลองใหม่" });
+            }
         }
       }
       setIsUploading(false);
@@ -609,13 +658,10 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
 
                     {/* --- BULK UPLOAD FOLDER SECTION --- */}
                     <div className="bg-indigo-50 p-3 border border-indigo-200 rounded shadow-sm flex flex-col gap-2 mt-2">
-                       <span className="text-sm font-bold text-indigo-800">เพิ่มรายการแบบกลุ่ม (อัปโหลดหลายโฟลเดอร์พร้อมกัน)</span>
-                       <p className="text-[11px] text-gray-600 leading-tight">
-                         <b>💡 เคล็ดลับ:</b> ให้นำโฟลเดอร์รุ่นผ้าทั้งหมด ไปใส่ไว้ใน <b>"โฟลเดอร์หลัก 1 อัน"</b> แล้วกดเลือกโฟลเดอร์หลักนั้น<br/>
-                         ระบบจะดึง <b>"ชื่อโฟลเดอร์ย่อย"</b> เป็นชื่อรุ่น และ <b>"ชื่อไฟล์ภาพ"</b> เป็นชื่อสี ให้อัตโนมัติ
-                       </p>
-                       <label className={`bg-white border border-gray-300 text-gray-700 px-3 py-2 rounded text-sm flex justify-center items-center font-bold shadow-sm transition-colors ${isUploadingBulk ? 'opacity-50 cursor-wait' : 'cursor-pointer hover:bg-indigo-100 border-indigo-300 text-indigo-700'}`}>
-                         {isUploadingBulk ? `กำลังอัปโหลด... ${bulkProgress}` : <><Upload size={14} className="mr-1"/> เลือกโฟลเดอร์หลัก (รวมหลายรุ่น)</>}
+                       <span className="text-sm font-bold text-indigo-800">เพิ่มรายการแบบกลุ่ม (นำเข้าทั้งโฟลเดอร์)</span>
+                       <p className="text-[11px] text-gray-600 leading-tight">ระบบจะใช้ <b>"ชื่อโฟลเดอร์"</b> เป็นชื่อรุ่น และ <b>"ชื่อไฟล์ภาพ"</b> เป็นชื่อสี (แปลงเป็นพิมพ์ใหญ่อัตโนมัติ)</p>
+                       <label className={`bg-white border border-gray-300 text-gray-700 px-3 py-2 rounded text-sm flex justify-center items-center font-bold shadow-sm ${isUploadingBulk ? 'opacity-50 cursor-wait' : 'cursor-pointer hover:bg-gray-50'}`}>
+                         {isUploadingBulk ? `กำลังอัปโหลด... ${bulkProgress}` : <><Upload size={14} className="mr-1"/> เลือกโฟลเดอร์ที่มีรูปผ้า</>}
                          <input type="file" webkitdirectory="true" directory="true" multiple accept={ACCEPTED_IMAGE_FORMATS} className="hidden" disabled={isUploadingBulk} onChange={handleBulkUpload}/>
                        </label>
                     </div>
@@ -803,22 +849,28 @@ const UserManagementModal = ({ show, onClose, setDialog, allAccounts, setAllAcco
        setIsUploadingSig(true);
        const cmp = await processImageFile(file, 600, 0.8, setDialog);
        if(cmp){
-          const transparent = await removeWhiteBackground(cmp);
-          const url = await uploadImageToImgBB(transparent);
-          if(url) {
-             if(accountId) {
-                 // อัปเดตลายเซ็นให้พนักงานที่มีอยู่แล้ว
-                 const updatedAccounts = allAccounts.map(acc => 
-                     acc.id === accountId ? { ...acc, signatureUrl: url } : acc
-                 );
-                 saveAcc(updatedAccounts);
-                 setDialog({ type: 'alert', message: 'อัปเดตลายเซ็นสำเร็จ' });
-             } else {
-                 // สำหรับฟอร์มเพิ่มพนักงานใหม่
-                 setNewSig(url);
-             }
+          try {
+              const transparent = await removeWhiteBackground(cmp);
+              const url = await uploadImageToImgBB(transparent);
+              if(url) {
+                 if(accountId) {
+                     // อัปเดตลายเซ็นให้พนักงานที่มีอยู่แล้ว
+                     const updatedAccounts = allAccounts.map(acc => 
+                         acc.id === accountId ? { ...acc, signatureUrl: url } : acc
+                     );
+                     saveAcc(updatedAccounts);
+                     setDialog({ type: 'alert', message: 'อัปเดตลายเซ็นสำเร็จ' });
+                 } else {
+                     // สำหรับฟอร์มเพิ่มพนักงานใหม่
+                     setNewSig(url);
+                 }
+              }
+              else setDialog({ type: 'alert', message: 'อัปโหลดลายเซ็นต์ไม่สำเร็จ' });
+          } catch (err) {
+              if (err.message === "RATE_LIMIT_REACHED") {
+                  setDialog({ type: 'alert', message: 'ระบบโควต้าอัปโหลดรูปภาพเต็มชั่วคราว (Rate Limit) กรุณารอสักพักแล้วลองใหม่' });
+              }
           }
-          else setDialog({ type: 'alert', message: 'อัปโหลดลายเซ็นต์ไม่สำเร็จ' });
        }
        setIsUploadingSig(false);
     }
@@ -1148,12 +1200,17 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
       setIsUploadingObj(true);
       const compressedDataUrl = await processImageFile(file, 1024, 0.7, setDialog);
       if(compressedDataUrl) {
-         const url = await uploadImageToImgBB(compressedDataUrl);
-         if (url) {
-           handleItemChange(item.id, 'image', url);
-           setShowControls(true);
+         try {
+             const url = await uploadImageToImgBB(compressedDataUrl);
+             if (url) {
+               handleItemChange(item.id, 'image', url);
+               setShowControls(true);
+             } else setDialog({ type: 'alert', message: 'อัปโหลดรูปล้มเหลว' });
+         } catch (err) {
+             if (err.message === "RATE_LIMIT_REACHED") {
+                  setDialog({ type: 'alert', message: 'ระบบโควต้าอัปโหลดรูปภาพเต็มชั่วคราว (Rate Limit) กรุณารอสักพักแล้วลองใหม่' });
+             }
          }
-         else setDialog({ type: 'alert', message: 'อัปโหลดรูปล้มเหลว' });
       }
       setIsUploadingObj(false);
     }

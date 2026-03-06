@@ -114,7 +114,7 @@ const loadHeic2Any = async () => {
   });
 };
 
-const processImageFile = async (file, maxWidth = 1200, quality = 0.8, setDialog) => {
+const processImageFile = async (file, maxWidth = 1024, quality = 0.7, setDialog) => {
   let processFile = file;
   
   if (file.name.toLowerCase().match(/\.(heic|heif)$/i)) {
@@ -789,7 +789,7 @@ const LoginScreen = ({ onLogin }) => {
 const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 'editor' }) => {
   const [activeAreaId, setActiveAreaId] = useState(null);
   const [isDrawing, setIsDrawing] = useState(false);
-  const [showControls, setShowControls] = useState(true);
+  const [showControls, setShowControls] = useState(false);
   const [mode, setMode] = useState('draw'); 
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -991,10 +991,13 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
     const file = e.target.files[0];
     if (file) {
       setIsUploadingObj(true);
-      const compressedDataUrl = await processImageFile(file, 1200, 0.8, setDialog);
+      const compressedDataUrl = await processImageFile(file, 1024, 0.7, setDialog);
       if(compressedDataUrl) {
          const url = await uploadImageToImgBB(compressedDataUrl);
-         if (url) handleItemChange(item.id, 'image', url);
+         if (url) {
+           handleItemChange(item.id, 'image', url);
+           setShowControls(true);
+         }
          else setDialog({ type: 'alert', message: 'อัปโหลดรูปล้มเหลว' });
       }
       setIsUploadingObj(false);
@@ -1006,7 +1009,6 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
   return (
     <div ref={wrapperRef} className="flex flex-col w-full h-full relative border-b md:border-b-0 print:border-b-0 border-gray-300 bg-white">
       <div 
-        ref={containerRef}
         className={`relative w-full flex-grow overflow-hidden bg-gray-100 ${mode === 'pan' ? (isPanning ? 'cursor-grabbing' : 'cursor-grab') : (activeAreaId && isDrawing ? 'cursor-crosshair' : 'cursor-default')}`}
         onWheel={handleWheel} 
         onMouseDown={handleMouseDown} onTouchStart={handleMouseDown}
@@ -1017,230 +1019,235 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
         {item.image ? (
           <>
             <div style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: '0 0' }} className={`w-full h-full relative transition-transform duration-75 ease-out ${(item.imageFit || 'fill') === 'fit' ? 'bg-white' : ''}`}>
-              <img src={item.image} alt="Window view" className={`w-full h-full pointer-events-none ${(item.imageFit || 'fill') === 'fit' ? 'object-contain' : 'object-cover'}`} />
-              
-              <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none">
-                <defs>
+              <div ref={containerRef} className="relative flex items-center justify-center w-full h-full">
+                <img src={item.image} alt="Window view" className={`w-full h-full pointer-events-none ${(item.imageFit || 'fill') === 'fit' ? 'object-contain' : 'object-cover'}`} />
+                
+                <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none">
+                  <defs>
+                    {item.areas.map(area => {
+                      const clipId = `clip-${idPrefix}-${item.id}-${area.id}`;
+                      return (
+                        <clipPath key={clipId} id={clipId}>
+                          <polygon points={area.points.map(p => `${p.x},${p.y}`).join(' ')} />
+                        </clipPath>
+                      )
+                    })}
+                  </defs>
+
                   {item.areas.map(area => {
+                    if(area.points.length < 3) return null;
+                    const minX = Math.min(...area.points.map(p=>p.x));
+                    const maxX = Math.max(...area.points.map(p=>p.x));
+                    const minY = Math.min(...area.points.map(p=>p.y));
+                    const maxY = Math.max(...area.points.map(p=>p.y));
+                    const w = maxX - minX;
+                    const h = maxY - minY;
                     const clipId = `clip-${idPrefix}-${item.id}-${area.id}`;
-                    return (
-                      <clipPath key={clipId} id={clipId}>
-                        <polygon points={area.points.map(p => `${p.x},${p.y}`).join(' ')} />
-                      </clipPath>
-                    )
-                  })}
-                </defs>
+                    
+                    const styleMain1 = area.styleMain1 || item.styleMain1 || item.styleMain || '';
+                    const autoMaskType = styleMain1.match(/ม้วน|พับ|มู่ลี่/) ? 'height' : 'width';
+                    const maskType = area.maskType || autoMaskType;
+                    const mPct = (area.maskPct || 20) / 100;
+                    const maskOpacity = (area.maskOpacity ?? 87) / 100;
+                    
+                    const action = area.styleAction1 || item.styleAction1 || item.styleAction || '';
+                    const masks = appDB.masks?.[styleMain1] || {};
+                    const maskImgFallback = masks[action] || masks['ALL'] || Object.values(masks)[0];
+                    let maskElements = [];
+                    
+                    const dist = (p1, p2) => Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
+                    
+                    if (maskImgFallback) {
+                      if (maskType === 'height') {
+                        let isQuad = area.points.length === 4;
+                        let TL, TR, BL, BR;
+                        if (isQuad) {
+                          let sortedY = [...area.points].sort((a, b) => a.y - b.y);
+                          let top2 = sortedY.slice(0, 2).sort((a, b) => a.x - b.x);
+                          let bot2 = sortedY.slice(2, 4).sort((a, b) => a.x - b.x);
+                          TL = top2[0]; TR = top2[1]; BL = bot2[0]; BR = bot2[1];
+                        } else {
+                          TL = {x: minX, y: minY}; TR = {x: maxX, y: minY};
+                          BL = {x: minX, y: maxY}; BR = {x: maxX, y: maxY};
+                        }
 
-                {item.areas.map(area => {
-                  if(area.points.length < 3) return null;
-                  const minX = Math.min(...area.points.map(p=>p.x));
-                  const maxX = Math.max(...area.points.map(p=>p.x));
-                  const minY = Math.min(...area.points.map(p=>p.y));
-                  const maxY = Math.max(...area.points.map(p=>p.y));
-                  const w = maxX - minX;
-                  const h = maxY - minY;
-                  const clipId = `clip-${idPrefix}-${item.id}-${area.id}`;
-                  
-                  const styleMain1 = area.styleMain1 || item.styleMain1 || item.styleMain || '';
-                  const autoMaskType = styleMain1.match(/ม้วน|พับ|มู่ลี่/) ? 'height' : 'width';
-                  const maskType = area.maskType || autoMaskType;
-                  const mPct = (area.maskPct || 20) / 100;
-                  const maskOpacity = (area.maskOpacity ?? 87) / 100;
-                  
-                  const action = area.styleAction1 || item.styleAction1 || item.styleAction || '';
-                  const masks = appDB.masks?.[styleMain1] || {};
-                  const maskImgFallback = masks[action] || masks['ALL'] || Object.values(masks)[0];
-                  let maskElements = [];
-                  
-                  const dist = (p1, p2) => Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
-                  
-                  if (maskImgFallback) {
-                    if (maskType === 'height') {
-                      // --- แบบบิดภาพ (Perspective Warp) สำหรับม่านพับ มู่ลี่ ม่านม้วน ---
-                      let isQuad = area.points.length === 4;
-                      let TL, TR, BL, BR;
-                      if (isQuad) {
-                        let sortedY = [...area.points].sort((a, b) => a.y - b.y);
-                        let top2 = sortedY.slice(0, 2).sort((a, b) => a.x - b.x);
-                        let bot2 = sortedY.slice(2, 4).sort((a, b) => a.x - b.x);
-                        TL = top2[0]; TR = top2[1]; BL = bot2[0]; BR = bot2[1];
-                      } else {
-                        TL = {x: minX, y: minY}; TR = {x: maxX, y: minY};
-                        BL = {x: minX, y: maxY}; BR = {x: maxX, y: maxY};
-                      }
+                        let dropL = { x: TL.x + (BL.x - TL.x) * mPct, y: TL.y + (BL.y - TL.y) * mPct };
+                        let dropR = { x: TR.x + (BR.x - TR.x) * mPct, y: TR.y + (BR.y - TR.y) * mPct };
 
-                      // หาจุดตัดด้านล่างให้ไหลลงมาขนานกับเส้นกรอบซ้ายและขวา
-                      let dropL = { x: TL.x + (BL.x - TL.x) * mPct, y: TL.y + (BL.y - TL.y) * mPct };
-                      let dropR = { x: TR.x + (BR.x - TR.x) * mPct, y: TR.y + (BR.y - TR.y) * mPct };
+                        let clipPoly = `${TL.x},${TL.y} ${TR.x},${TR.y} ${dropR.x},${dropR.y} ${dropL.x},${dropL.y}`;
+                        let clipIdAct = `${clipId}-height-act`;
 
-                      let clipPoly = `${TL.x},${TL.y} ${TR.x},${TR.y} ${dropR.x},${dropR.y} ${dropL.x},${dropL.y}`;
-                      let clipIdAct = `${clipId}-height-act`;
+                        let W = Math.max(0.1, dist(TL, TR));
+                        let H = Math.max(0.1, dist(TL, dropL));
 
-                      // Matrix Transformation Data
-                      let W = Math.max(0.1, dist(TL, TR));
-                      let H = Math.max(0.1, dist(TL, dropL));
+                        let u_x = (TR.x - TL.x) / W;
+                        let u_y = (TR.y - TL.y) / W;
+                        let v_x = (dropL.x - TL.x) / H;
+                        let v_y = (dropL.y - TL.y) / H;
 
-                      let u_x = (TR.x - TL.x) / W;
-                      let u_y = (TR.y - TL.y) / W;
-                      let v_x = (dropL.x - TL.x) / H;
-                      let v_y = (dropL.y - TL.y) / H;
+                        let D = u_x * v_y - u_y * v_x;
+                        let imgW = W;
+                        let imgH = H;
 
-                      let D = u_x * v_y - u_y * v_x;
-                      let imgW = W;
-                      let imgH = H;
+                        if (Math.abs(D) > 1e-6) {
+                          let dx = dropR.x - TL.x;
+                          let dy = dropR.y - TL.y;
+                          let x_R = (dx * v_y - dy * v_x) / D;
+                          let y_R = (u_x * dy - u_y * dx) / D;
+                          imgW = Math.max(W, x_R);
+                          imgH = Math.max(H, y_R);
+                        }
 
-                      if (Math.abs(D) > 1e-6) {
-                        let dx = dropR.x - TL.x;
-                        let dy = dropR.y - TL.y;
-                        let x_R = (dx * v_y - dy * v_x) / D;
-                        let y_R = (u_x * dy - u_y * dx) / D;
-                        imgW = Math.max(W, x_R);
-                        imgH = Math.max(H, y_R);
-                      }
-
-                      maskElements.push(
-                        <React.Fragment key="T">
-                          <clipPath id={clipIdAct}><polygon points={clipPoly} /></clipPath>
-                          <g clipPath={`url(#${clipIdAct})`}>
-                            <image 
-                              href={maskImgFallback} 
-                              x="0" y="0" 
-                              width={imgW} height={imgH} 
-                              preserveAspectRatio="none" 
-                              opacity={maskOpacity}
-                              transform={area.points.length === 4 ? `matrix(${u_x} ${u_y} ${v_x} ${v_y} ${TL.x} ${TL.y})` : `translate(${TL.x}, ${TL.y})`}
-                            />
-                          </g>
-                        </React.Fragment>
-                      );
-                    } else {
-                      // --- ผ้าม่านเดิม 100% ไม่บิดเบือน ---
-                      if (action.includes('แยกกลาง')) {
-                        const leftImg = masks['รวบซ้าย'] || maskImgFallback;
-                        const rightImg = masks['รวบขวา'] || maskImgFallback;
                         maskElements.push(
-                          <g key="W" clipPath={`url(#${clipId})`}>
-                            <image href={leftImg} x={minX} y={minY} width={w * mPct} height={h} preserveAspectRatio="none" opacity={maskOpacity} />
-                            <image href={rightImg} x={maxX - (w * mPct)} y={minY} width={w * mPct} height={h} preserveAspectRatio="none" opacity={maskOpacity} />
-                          </g>
-                        );
-                      } else if (action.includes('ขวา')) {
-                        const rightImg = masks['รวบขวา'] || masks[action] || maskImgFallback;
-                        maskElements.push(
-                          <g key="R" clipPath={`url(#${clipId})`}>
-                            <image href={rightImg} x={maxX - (w * mPct)} y={minY} width={w * mPct} height={h} preserveAspectRatio="none" opacity={maskOpacity} />
-                          </g>
+                          <React.Fragment key="T">
+                            <clipPath id={clipIdAct}><polygon points={clipPoly} /></clipPath>
+                            <g clipPath={`url(#${clipIdAct})`}>
+                              <image 
+                                href={maskImgFallback} 
+                                x="0" y="0" 
+                                width={imgW} height={imgH} 
+                                preserveAspectRatio="none" 
+                                opacity={maskOpacity}
+                                transform={area.points.length === 4 ? `matrix(${u_x} ${u_y} ${v_x} ${v_y} ${TL.x} ${TL.y})` : `translate(${TL.x}, ${TL.y})`}
+                              />
+                            </g>
+                          </React.Fragment>
                         );
                       } else {
-                        const leftImg = masks['รวบซ้าย'] || masks[action] || maskImgFallback;
-                        maskElements.push(
-                          <g key="L" clipPath={`url(#${clipId})`}>
-                            <image href={leftImg} x={minX} y={minY} width={w * mPct} height={h} preserveAspectRatio="none" opacity={maskOpacity} />
-                          </g>
-                        );
+                        if (action.includes('แยกกลาง')) {
+                          const leftImg = masks['รวบซ้าย'] || maskImgFallback;
+                          const rightImg = masks['รวบขวา'] || maskImgFallback;
+                          maskElements.push(
+                            <g key="W" clipPath={`url(#${clipId})`}>
+                              <image href={leftImg} x={minX} y={minY} width={w * mPct} height={h} preserveAspectRatio="none" opacity={maskOpacity} />
+                              <image href={rightImg} x={maxX - (w * mPct)} y={minY} width={w * mPct} height={h} preserveAspectRatio="none" opacity={maskOpacity} />
+                            </g>
+                          );
+                        } else if (action.includes('ขวา')) {
+                          const rightImg = masks['รวบขวา'] || masks[action] || maskImgFallback;
+                          maskElements.push(
+                            <g key="R" clipPath={`url(#${clipId})`}>
+                              <image href={rightImg} x={maxX - (w * mPct)} y={minY} width={w * mPct} height={h} preserveAspectRatio="none" opacity={maskOpacity} />
+                            </g>
+                          );
+                        } else {
+                          const leftImg = masks['รวบซ้าย'] || masks[action] || maskImgFallback;
+                          maskElements.push(
+                            <g key="L" clipPath={`url(#${clipId})`}>
+                              <image href={leftImg} x={minX} y={minY} width={w * mPct} height={h} preserveAspectRatio="none" opacity={maskOpacity} />
+                            </g>
+                          );
+                        }
                       }
                     }
-                  }
 
-                  return (
-                    <g key={`fill-group-${area.id}`}>
-                      <polygon points={area.points.map(p => `${p.x},${p.y}`).join(' ')} fill={area.lineColor} fillOpacity={0.15} stroke="none" />
-                      {maskElements}
+                    return (
+                      <g key={`fill-group-${area.id}`}>
+                        <polygon points={area.points.map(p => `${p.x},${p.y}`).join(' ')} fill={area.lineColor} fillOpacity={0.15} stroke="none" />
+                        {maskElements}
+                      </g>
+                    );
+                  })}
+                  {mode === 'draw' && activeAreaId && isDrawing && !pointDrag && cursorPos && activeArea && activeArea.points.length > 0 && (
+                    <polygon points={[...activeArea.points, cursorPos].map(p => `${p.x},${p.y}`).join(' ')} fill={activeArea.lineColor} fillOpacity={0.1} stroke="none" />
+                  )}
+                </svg>
+
+                <svg className="absolute inset-0 w-full h-full pointer-events-none">
+                  {item.areas.map(area => {
+                    const isActive = activeAreaId === area.id;
+                    return (
+                      <g key={area.id}>
+                        {area.points.map((p, idx) => {
+                          const isLast = idx === area.points.length - 1;
+                          const nextP = isLast ? area.points[0] : area.points[idx + 1];
+                          if (mode === 'draw' && isActive && isDrawing && isLast && !pointDrag) return null;
+                          if (area.points.length < 2) return null;
+                          return (
+                            <line key={`line-${idx}`} x1={`${p.x}%`} y1={`${p.y}%`} x2={`${nextP.x}%`} y2={`${nextP.y}%`} stroke={area.lineColor} strokeWidth={area.lineWidth / zoom} strokeDasharray={isActive && !pointDrag && isDrawing ? "4 4" : "0"} className={isActive && !pointDrag && isDrawing ? "animate-pulse" : ""} style={{ pointerEvents: 'none' }} />
+                          );
+                        })}
+                        {area.points.map((p, idx) => {
+                          const isFirstPoint = idx === 0;
+                          const isCurrentlyDrawing = mode === 'draw' && isActive && isDrawing;
+                          const isHighlight = isCurrentlyDrawing && isFirstPoint && area.points.length >= 2;
+                          const circleRadius = isHighlight ? 8/zoom : 4/zoom;
+                          
+                          return (
+                            <g key={idx} className="cursor-move" style={{ pointerEvents: 'auto' }}>
+                              <circle cx={`${p.x}%`} cy={`${p.y}%`} r={circleRadius} fill={isHighlight ? "#FFD700" : "white"} stroke={area.lineColor} strokeWidth={isHighlight ? 3/zoom : 2/zoom} onMouseDown={(e) => handlePointMouseDown(e, area.id, idx)} onTouchStart={(e) => handlePointMouseDown(e, area.id, idx)} className={isHighlight ? "animate-pulse" : ""} />
+                            </g>
+                          );
+                        })}
+                      </g>
+                    );
+                  })}
+                  {mode === 'draw' && activeAreaId && isDrawing && !pointDrag && cursorPos && activeArea && activeArea.points.length > 0 && (
+                    <g style={{ pointerEvents: 'none' }}>
+                      <line x1={`${activeArea.points[activeArea.points.length - 1].x}%`} y1={`${activeArea.points[activeArea.points.length - 1].y}%`} x2={`${cursorPos.x}%`} y2={`${cursorPos.y}%`} stroke={activeArea.lineColor} strokeWidth={2/zoom} strokeDasharray="4 4" />
+                      <line x1={`${cursorPos.x}%`} y1={`${cursorPos.y}%`} x2={`${activeArea.points[0].x}%`} y2={`${activeArea.points[0].y}%`} stroke={activeArea.lineColor} strokeWidth={2/zoom} strokeDasharray="4 4" opacity="0.5" />
                     </g>
-                  );
-                })}
-                {mode === 'draw' && activeAreaId && isDrawing && !pointDrag && cursorPos && activeArea && activeArea.points.length > 0 && (
-                  <polygon points={[...activeArea.points, cursorPos].map(p => `${p.x},${p.y}`).join(' ')} fill={activeArea.lineColor} fillOpacity={0.1} stroke="none" />
-                )}
-              </svg>
+                  )}
+                </svg>
 
-              <svg className="absolute inset-0 w-full h-full pointer-events-none">
                 {item.areas.map(area => {
-                  const isActive = activeAreaId === area.id;
+                  if(area.points.length === 0) return null;
+                  
+                  let wMidX = 50, wMidY = 0, wAng = 0;
+                  let hMidX = 0, hMidY = 50, hAng = -90;
+
+                  if (area.points.length >= 2) {
+                    let edges = [];
+                    for(let i=0; i<area.points.length; i++) {
+                      let p1 = area.points[i];
+                      let p2 = area.points[(i+1)%area.points.length];
+                      edges.push({ p1, p2, midX: (p1.x+p2.x)/2, midY: (p1.y+p2.y)/2, dx: p2.x - p1.x, dy: p2.y - p1.y });
+                    }
+                    
+                    let tEdge = edges.reduce((prev, curr) => prev.midY < curr.midY ? prev : curr);
+                    let bEdge = edges.reduce((prev, curr) => prev.midY > curr.midY ? prev : curr);
+                    let lEdge = edges.reduce((prev, curr) => prev.midX < curr.midX ? prev : curr);
+                    let rEdge = edges.reduce((prev, curr) => prev.midX > curr.midX ? prev : curr);
+
+                    const getVisualAngle = (edge, defaultAng) => {
+                      if (!containerRef.current) return defaultAng;
+                      const rect = containerRef.current.getBoundingClientRect();
+                      const pxDx = edge.dx * (rect.width / 100);
+                      const pxDy = edge.dy * (rect.height / 100);
+                      if (pxDx === 0 && pxDy === 0) return defaultAng;
+                      let ang = Math.atan2(pxDy, pxDx) * (180 / Math.PI);
+                      if (ang > 90 || ang < -90) ang += 180;
+                      return ang;
+                    };
+
+                    const wPos = area.wPos || 'top';
+                    const hPos = area.hPos || 'right';
+
+                    if (wPos === 'top') { wMidX = tEdge.midX; wMidY = tEdge.midY; wAng = getVisualAngle(tEdge, 0); }
+                    else { wMidX = bEdge.midX; wMidY = bEdge.midY; wAng = getVisualAngle(bEdge, 0); }
+
+                    if (hPos === 'left') { hMidX = lEdge.midX; hMidY = lEdge.midY; hAng = getVisualAngle(lEdge, -90); }
+                    else { hMidX = rEdge.midX; hMidY = rEdge.midY; hAng = getVisualAngle(rEdge, 90); }
+                  }
+
+                  const lblSize = (area.labelSize || 14) / zoom;
+                  
                   return (
-                    <g key={area.id}>
-                      {area.points.map((p, idx) => {
-                        const isLast = idx === area.points.length - 1;
-                        const nextP = isLast ? area.points[0] : area.points[idx + 1];
-                        if (mode === 'draw' && isActive && isDrawing && isLast && !pointDrag) return null;
-                        if (area.points.length < 2) return null;
-                        return (
-                          <line key={`line-${idx}`} x1={`${p.x}%`} y1={`${p.y}%`} x2={`${nextP.x}%`} y2={`${nextP.y}%`} stroke={area.lineColor} strokeWidth={area.lineWidth / zoom} strokeDasharray={isActive && !pointDrag && isDrawing ? "4 4" : "0"} className={isActive && !pointDrag && isDrawing ? "animate-pulse" : ""} style={{ pointerEvents: 'none' }} />
-                        );
-                      })}
-                      {area.points.map((p, idx) => (
-                        <g key={idx} className="cursor-move" style={{ pointerEvents: 'auto' }}>
-                          <circle cx={`${p.x}%`} cy={`${p.y}%`} r={4/zoom} fill="white" stroke={area.lineColor} strokeWidth={2/zoom} onMouseDown={(e) => handlePointMouseDown(e, area.id, idx)} onTouchStart={(e) => handlePointMouseDown(e, area.id, idx)} />
-                        </g>
-                      ))}
-                    </g>
+                    <div key={`labels-${area.id}`} className="absolute inset-0 pointer-events-none">
+                      {area.width && (
+                        <div style={{ position: 'absolute', left: `${wMidX}%`, top: `${wMidY}%`, transform: `translate(-50%, -50%) rotate(${wAng}deg)`, color: area.labelColor || area.lineColor, fontSize: `${lblSize}px`, whiteSpace: 'nowrap' }} className="bg-white/95 px-2 py-0.5 rounded shadow-md border border-gray-300 font-bold z-10 text-center">
+                          {area.width} ซม.
+                        </div>
+                      )}
+                      {area.height && (
+                        <div style={{ position: 'absolute', left: `${hMidX}%`, top: `${hMidY}%`, transform: `translate(-50%, -50%) rotate(${hAng}deg)`, color: area.labelColor || area.lineColor, fontSize: `${lblSize}px`, whiteSpace: 'nowrap' }} className="bg-white/95 px-2 py-0.5 rounded shadow-md border border-gray-300 font-bold z-10 text-center">
+                          {area.height} ซม.
+                        </div>
+                      )}
+                    </div>
                   );
                 })}
-                {mode === 'draw' && activeAreaId && isDrawing && !pointDrag && cursorPos && activeArea && activeArea.points.length > 0 && (
-                  <g style={{ pointerEvents: 'none' }}>
-                    <line x1={`${activeArea.points[activeArea.points.length - 1].x}%`} y1={`${activeArea.points[activeArea.points.length - 1].y}%`} x2={`${cursorPos.x}%`} y2={`${cursorPos.y}%`} stroke={activeArea.lineColor} strokeWidth={2/zoom} strokeDasharray="4 4" />
-                    <line x1={`${cursorPos.x}%`} y1={`${cursorPos.y}%`} x2={`${activeArea.points[0].x}%`} y2={`${activeArea.points[0].y}%`} stroke={activeArea.lineColor} strokeWidth={2/zoom} strokeDasharray="4 4" opacity="0.5" />
-                  </g>
-                )}
-              </svg>
-
-              {item.areas.map(area => {
-                if(area.points.length === 0) return null;
-                
-                let wMidX = 50, wMidY = 0, wAng = 0;
-                let hMidX = 0, hMidY = 50, hAng = -90;
-
-                if (area.points.length >= 2) {
-                  let edges = [];
-                  for(let i=0; i<area.points.length; i++) {
-                    let p1 = area.points[i];
-                    let p2 = area.points[(i+1)%area.points.length];
-                    edges.push({ p1, p2, midX: (p1.x+p2.x)/2, midY: (p1.y+p2.y)/2, dx: p2.x - p1.x, dy: p2.y - p1.y });
-                  }
-                  
-                  let tEdge = edges.reduce((prev, curr) => prev.midY < curr.midY ? prev : curr);
-                  let bEdge = edges.reduce((prev, curr) => prev.midY > curr.midY ? prev : curr);
-                  let lEdge = edges.reduce((prev, curr) => prev.midX < curr.midX ? prev : curr);
-                  let rEdge = edges.reduce((prev, curr) => prev.midX > curr.midX ? prev : curr);
-
-                  const getVisualAngle = (edge, defaultAng) => {
-                    if (!containerRef.current) return defaultAng;
-                    const rect = containerRef.current.getBoundingClientRect();
-                    const pxDx = edge.dx * (rect.width / 100);
-                    const pxDy = edge.dy * (rect.height / 100);
-                    if (pxDx === 0 && pxDy === 0) return defaultAng;
-                    let ang = Math.atan2(pxDy, pxDx) * (180 / Math.PI);
-                    if (ang > 90 || ang < -90) ang += 180;
-                    return ang;
-                  };
-
-                  const wPos = area.wPos || 'top';
-                  const hPos = area.hPos || 'right';
-
-                  if (wPos === 'top') { wMidX = tEdge.midX; wMidY = tEdge.midY; wAng = getVisualAngle(tEdge, 0); }
-                  else { wMidX = bEdge.midX; wMidY = bEdge.midY; wAng = getVisualAngle(bEdge, 0); }
-
-                  if (hPos === 'left') { hMidX = lEdge.midX; hMidY = lEdge.midY; hAng = getVisualAngle(lEdge, -90); }
-                  else { hMidX = rEdge.midX; hMidY = rEdge.midY; hAng = getVisualAngle(rEdge, 90); }
-                }
-
-                const lblSize = (area.labelSize || 14) / zoom;
-                
-                return (
-                  <div key={`labels-${area.id}`} className="absolute inset-0 pointer-events-none">
-                    {area.width && (
-                      <div style={{ position: 'absolute', left: `${wMidX}%`, top: `${wMidY}%`, transform: `translate(-50%, -50%) rotate(${wAng}deg)`, color: area.labelColor || area.lineColor, fontSize: `${lblSize}px`, whiteSpace: 'nowrap' }} className="bg-white/95 px-2 py-0.5 rounded shadow-md border border-gray-300 font-bold z-10 text-center">
-                        {area.width} ซม.
-                      </div>
-                    )}
-                    {area.height && (
-                      <div style={{ position: 'absolute', left: `${hMidX}%`, top: `${hMidY}%`, transform: `translate(-50%, -50%) rotate(${hAng}deg)`, color: area.labelColor || area.lineColor, fontSize: `${lblSize}px`, whiteSpace: 'nowrap' }} className="bg-white/95 px-2 py-0.5 rounded shadow-md border border-gray-300 font-bold z-10 text-center">
-                        {area.height} ซม.
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+              </div>
             </div>
 
             <div className="absolute top-2 left-2 flex flex-wrap gap-2 z-40 no-print" onMouseDown={e=>e.stopPropagation()} onTouchStart={e=>e.stopPropagation()} onClick={e=>e.stopPropagation()} onWheel={e=>e.stopPropagation()}>
@@ -1249,7 +1256,7 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
                 <input type="file" accept={ACCEPTED_IMAGE_FORMATS} className="hidden" disabled={isUploadingObj} onChange={handleImageUpload} />
               </label>
               <button onClick={() => handleItemChange(item.id, 'imageFit', (item.imageFit || 'fill') === 'fill' ? 'fit' : 'fill')} className="cursor-pointer bg-white/90 border border-gray-300 text-gray-700 px-3 py-1.5 rounded shadow-sm hover:bg-white flex items-center text-xs font-bold transition-colors" title="เปลี่ยนรูปแบบการจัดวางรูปภาพ">
-                {(item.imageFit || 'fill') === 'fill' ? 'แสดงผล: Fill (เต็มขอบ)' : 'แสดงผล: Fit (พอดีภาพ)'}
+                {(item.imageFit || 'fill') === 'fill' ? 'โหมด: เต็มกรอบ (Fill)' : 'โหมด: พอดีภาพ (Fit)'}
               </button>
             </div>
           </>
@@ -1513,7 +1520,7 @@ const App = () => {
 
   const saveData = async () => {
     if (!firebaseUser) return;
-    setSaving(true); setSaveStatus('กำลังบันทึก...');
+    setSaving(true); setSaveStatus('บันทึกสำเร็จ!');
     try {
       const pId = currentProjectId || Date.now().toString();
       const projData = { 
@@ -1522,7 +1529,7 @@ const App = () => {
       };
       await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'projects', pId), projData);
       setCurrentProjectId(pId);
-      setSaveStatus('บันทึกสำเร็จ!'); setTimeout(() => setSaveStatus(''), 3000);
+      setTimeout(() => setSaveStatus(''), 3000);
     } catch (err) { setSaveStatus('เกิดข้อผิดพลาด'); }
     setSaving(false);
   };
@@ -1553,6 +1560,13 @@ const App = () => {
   
   const handleItemChange = (id, field, value) => {
     setItems(prevItems => prevItems.map(item => item.id === id ? { ...item, [field]: value } : item));
+  };
+
+  const updateAreaField = (itemId, areaId, field, value) => {
+    setItems(prevItems => prevItems.map(item => item.id === itemId ? {
+      ...item,
+      areas: item.areas.map(a => a.id === areaId ? { ...a, [field]: value } : a)
+    } : item));
   };
 
   const handleLayerChange = (id, newLayerVal) => {
@@ -1734,9 +1748,7 @@ const App = () => {
             <div className="text-center mb-6 border-b-2 border-gray-800 pb-3 flex justify-between items-center avoid-break relative">
               <button onClick={()=>{saveData(); setView('dashboard');}} className="absolute -left-16 md:-left-20 top-1/2 transform -translate-y-1/2 no-print bg-gray-200 hover:bg-gray-300 text-gray-700 p-2 rounded-full shadow-md transition-colors"><ArrowLeft size={24}/></button>
               <div className="w-1/3 text-left no-print flex gap-2">
-                <button onClick={saveData} disabled={saving} className="bg-indigo-600 text-white px-4 py-2 rounded flex items-center hover:bg-indigo-700 text-sm shadow font-bold transition-colors"><Save size={16} className="mr-2"/> {saving ? 'บันทึก...' : 'บันทึกงาน'}</button>
                 {appUser.role === 'admin' && <button onClick={()=>setShowDBSettings(true)} className="bg-gray-700 text-white px-4 py-2 rounded flex items-center hover:bg-gray-800 text-sm shadow font-bold transition-colors"><Settings size={16} className="mr-2"/> ฐานข้อมูล</button>}
-                {saveStatus && <span className="text-xs text-green-600 ml-2 self-center font-bold bg-green-50 px-2 py-1 rounded">{saveStatus}</span>}
               </div>
               <h1 className="text-2xl font-bold text-gray-800 w-1/3">ใบสรุปงานติดตั้งผ้าม่าน</h1>
               <div className="w-1/3 text-right"></div>
@@ -1956,17 +1968,17 @@ const App = () => {
                               
                               {/* Specific Area Style Config (Overrides Global) */}
                               <div className="flex flex-col gap-1.5 mt-2 bg-indigo-50/50 p-2 rounded border border-indigo-100">
-                                <span className="font-bold text-[10px] text-indigo-800 mb-0.5">รูปแบบม่าน (กำหนดเฉพาะบาน)</span>
+                                <span className="font-bold text-[10px] text-indigo-800 mb-0.5">รูปแบบการทำงาน (กำหนดเฉพาะบานนี้)</span>
                                 <div className="flex gap-1.5 items-center">
                                   <span className="text-[10px] font-bold text-gray-500 w-10 shrink-0">ชั้นที่ 1:</span>
-                                  <select value={area.styleMain1 || item.styleMain1 || ''} onChange={(e)=>handleUpdateArea(area.id, 'styleMain1', e.target.value)} className="w-1/2 border-b border-gray-300 outline-none text-[11px] bg-transparent font-bold text-gray-700"><option value="">-ตามค่าเริ่มต้น-</option>{(appDB.styles || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
-                                  <select value={area.styleAction1 || item.styleAction1 || item.styleAction || ''} onChange={(e)=>handleUpdateArea(area.id, 'styleAction1', e.target.value)} className="w-1/2 border-b border-gray-300 outline-none text-[11px] bg-transparent font-bold text-gray-700"><option value="">-ตามค่าเริ่มต้น-</option>{(appDB.actions || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
+                                  <select value={area.styleMain1 || ''} onChange={(e)=>updateAreaField(item.id, area.id, 'styleMain1', e.target.value)} className="w-1/2 border-b border-gray-300 outline-none text-[11px] bg-transparent font-bold text-gray-700"><option value="">-ตามค่าเริ่มต้น-</option>{(appDB.styles || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
+                                  <select value={area.styleAction1 || ''} onChange={(e)=>updateAreaField(item.id, area.id, 'styleAction1', e.target.value)} className="w-1/2 border-b border-gray-300 outline-none text-[11px] bg-transparent font-bold text-gray-700"><option value="">-ตามค่าเริ่มต้น-</option>{(appDB.actions || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
                                 </div>
                                 {item.layers === 2 && (
                                   <div className="flex gap-1.5 items-center mt-1">
                                     <span className="text-[10px] font-bold text-gray-500 w-10 shrink-0">ชั้นที่ 2:</span>
-                                    <select value={area.styleMain2 || item.styleMain2 || ''} onChange={(e)=>handleUpdateArea(area.id, 'styleMain2', e.target.value)} className="w-1/2 border-b border-gray-300 outline-none text-[11px] bg-transparent font-bold text-gray-700"><option value="">-ตามค่าเริ่มต้น-</option>{(appDB.styles || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
-                                    <select value={area.styleAction2 || item.styleAction2 || ''} onChange={(e)=>handleUpdateArea(area.id, 'styleAction2', e.target.value)} className="w-1/2 border-b border-gray-300 outline-none text-[11px] bg-transparent font-bold text-gray-700"><option value="">-ตามค่าเริ่มต้น-</option>{(appDB.actions || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
+                                    <select value={area.styleMain2 || ''} onChange={(e)=>updateAreaField(item.id, area.id, 'styleMain2', e.target.value)} className="w-1/2 border-b border-gray-300 outline-none text-[11px] bg-transparent font-bold text-gray-700"><option value="">-ตามค่าเริ่มต้น-</option>{(appDB.styles || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
+                                    <select value={area.styleAction2 || ''} onChange={(e)=>updateAreaField(item.id, area.id, 'styleAction2', e.target.value)} className="w-1/2 border-b border-gray-300 outline-none text-[11px] bg-transparent font-bold text-gray-700"><option value="">-ตามค่าเริ่มต้น-</option>{(appDB.actions || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
                                   </div>
                                 )}
                               </div>
@@ -2093,14 +2105,22 @@ const App = () => {
       </div>
 
       <div className="fixed bottom-8 right-8 flex flex-col gap-4 no-print z-[999999]">
-        <button onClick={addItem} className="bg-green-600 hover:bg-green-700 text-white rounded-full p-4 shadow-xl flex items-center justify-center transition-transform hover:scale-110 border-2 border-white" title="เพิ่มหน้าต่างบานใหม่">
+        <button onClick={saveData} disabled={saving} className={`group relative ${saving ? 'bg-gray-500' : 'bg-indigo-600 hover:bg-indigo-700'} text-white rounded-full p-4 shadow-xl flex items-center justify-center transition-transform hover:scale-110 border-2 border-white`} title="บันทึกงาน">
+          <Save size={24} />
+          <span className="absolute right-[110%] bg-indigo-800 text-white px-2 py-1 rounded text-xs whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity mr-2">บันทึกงาน</span>
+          {saveStatus && <span className="absolute right-[110%] mr-2 bg-green-600 text-white px-3 py-1.5 rounded text-sm font-bold whitespace-nowrap shadow-lg">{saveStatus}</span>}
+        </button>
+        <button onClick={addItem} className="group relative bg-green-600 hover:bg-green-700 text-white rounded-full p-4 shadow-xl flex items-center justify-center transition-transform hover:scale-110 border-2 border-white" title="เพิ่มหน้าต่างบานใหม่">
           <Plus size={24} />
+          <span className="absolute right-[110%] bg-green-800 text-white px-2 py-1 rounded text-xs whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity mr-2">เพิ่มหน้าต่าง</span>
         </button>
-        <button onClick={handleSharePDF} className="bg-orange-500 hover:bg-orange-600 text-white rounded-full p-4 shadow-xl flex items-center justify-center transition-transform hover:scale-110 border-2 border-white" title="แชร์เป็น PDF (แนวนอน)">
+        <button onClick={handleSharePDF} className="group relative bg-orange-500 hover:bg-orange-600 text-white rounded-full p-4 shadow-xl flex items-center justify-center transition-transform hover:scale-110 border-2 border-white" title="แชร์เป็น PDF (แนวนอน)">
           <Share2 size={24} />
+          <span className="absolute right-[110%] bg-orange-800 text-white px-2 py-1 rounded text-xs whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity mr-2">แชร์ PDF</span>
         </button>
-        <button onClick={printDocument} className="bg-blue-600 hover:bg-blue-700 text-white rounded-full p-4 shadow-xl flex items-center justify-center transition-transform hover:scale-110 border-2 border-white" title="พิมพ์เอกสาร">
+        <button onClick={printDocument} className="group relative bg-blue-600 hover:bg-blue-700 text-white rounded-full p-4 shadow-xl flex items-center justify-center transition-transform hover:scale-110 border-2 border-white" title="พิมพ์เอกสาร">
           <Printer size={24} />
+          <span className="absolute right-[110%] bg-blue-800 text-white px-2 py-1 rounded text-xs whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity mr-2">พิมพ์</span>
         </button>
       </div>
     </div>

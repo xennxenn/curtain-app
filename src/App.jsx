@@ -367,6 +367,7 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
     }
   };
 
+  // --- อัปเกรดให้ประมวลผลคู่ขนาน (Batch Process) โฟลเดอร์จะเยอะแค่ไหนก็ไวขึ้น ---
   const handleBulkUpload = async (e) => {
     const files = Array.from(e.target.files).filter(f => f.type.startsWith('image/') || f.name.toLowerCase().match(/\.(heic|heif)$/i));
     if (files.length === 0) return;
@@ -378,33 +379,50 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
     setIsUploadingBulk(true);
     let successCount = 0;
     let newDB = JSON.parse(JSON.stringify(appDB));
+    const totalFiles = files.length;
+    const batchSize = 3; // อัปโหลดพร้อมกันทีละ 3 รูป ป้องกัน API ของ ImgBB ตัดการเชื่อมต่อ
 
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      setBulkProgress(`(${i + 1}/${files.length})`);
+    for (let i = 0; i < totalFiles; i += batchSize) {
+      const batch = files.slice(i, i + batchSize);
+      
+      // ประมวลผลและอัปโหลดใน Batch แบบขนาน (Parallel)
+      const uploadPromises = batch.map(async (file) => {
+        const pathParts = file.webkitRelativePath.split('/');
+        if (pathParts.length < 2) return null; 
 
-      const pathParts = file.webkitRelativePath.split('/');
-      if (pathParts.length < 2) continue; 
+        const folderName = pathParts[pathParts.length - 2].toUpperCase();
+        const fileNameWithoutExt = pathParts[pathParts.length - 1].replace(/\.[^/.]+$/, "").toUpperCase();
 
-      const folderName = pathParts[pathParts.length - 2].toUpperCase();
-      const fileNameWithoutExt = pathParts[pathParts.length - 1].replace(/\.[^/.]+$/, "").toUpperCase();
+        const compressedImg = await processImageFile(file, 400, 0.7, null); 
+        if (compressedImg) {
+          const url = await uploadImageToImgBB(compressedImg);
+          if (url) {
+            return { folderName, fileNameWithoutExt, url };
+          }
+        }
+        return null;
+      });
 
-      const compressedImg = await processImageFile(file, 400, 0.7, null); 
-      if (compressedImg) {
-        const url = await uploadImageToImgBB(compressedImg);
-        if (url) {
+      const results = await Promise.all(uploadPromises);
+
+      // นำผลลัพธ์มาใส่ใน Database
+      results.forEach(result => {
+        if (result) {
+          const { folderName, fileNameWithoutExt, url } = result;
           if (!newDB.curtainTypes[cat][type]) newDB.curtainTypes[cat][type] = {};
           if (!newDB.curtainTypes[cat][type][folderName]) newDB.curtainTypes[cat][type][folderName] = {};
           newDB.curtainTypes[cat][type][folderName][fileNameWithoutExt] = url;
           successCount++;
         }
-      }
+      });
+      
+      setBulkProgress(`(${Math.min(i + batchSize, totalFiles)}/${totalFiles})`);
     }
 
     setAppDB(newDB);
     setIsUploadingBulk(false);
     setBulkProgress('');
-    e.target.value = '';
+    e.target.value = ''; // Reset input
     setDialog({ type: 'alert', message: `อัปโหลดแบบกลุ่มสำเร็จ ${successCount} รายการ` });
   };
 
@@ -591,10 +609,13 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
 
                     {/* --- BULK UPLOAD FOLDER SECTION --- */}
                     <div className="bg-indigo-50 p-3 border border-indigo-200 rounded shadow-sm flex flex-col gap-2 mt-2">
-                       <span className="text-sm font-bold text-indigo-800">เพิ่มรายการแบบกลุ่ม (นำเข้าทั้งโฟลเดอร์)</span>
-                       <p className="text-[11px] text-gray-600 leading-tight">ระบบจะใช้ <b>"ชื่อโฟลเดอร์"</b> เป็นชื่อรุ่น และ <b>"ชื่อไฟล์ภาพ"</b> เป็นชื่อสี (แปลงเป็นพิมพ์ใหญ่อัตโนมัติ)</p>
-                       <label className={`bg-white border border-gray-300 text-gray-700 px-3 py-2 rounded text-sm flex justify-center items-center font-bold shadow-sm ${isUploadingBulk ? 'opacity-50 cursor-wait' : 'cursor-pointer hover:bg-gray-50'}`}>
-                         {isUploadingBulk ? `กำลังอัปโหลด... ${bulkProgress}` : <><Upload size={14} className="mr-1"/> เลือกโฟลเดอร์ที่มีรูปผ้า</>}
+                       <span className="text-sm font-bold text-indigo-800">เพิ่มรายการแบบกลุ่ม (อัปโหลดหลายโฟลเดอร์พร้อมกัน)</span>
+                       <p className="text-[11px] text-gray-600 leading-tight">
+                         <b>💡 เคล็ดลับ:</b> ให้นำโฟลเดอร์รุ่นผ้าทั้งหมด ไปใส่ไว้ใน <b>"โฟลเดอร์หลัก 1 อัน"</b> แล้วกดเลือกโฟลเดอร์หลักนั้น<br/>
+                         ระบบจะดึง <b>"ชื่อโฟลเดอร์ย่อย"</b> เป็นชื่อรุ่น และ <b>"ชื่อไฟล์ภาพ"</b> เป็นชื่อสี ให้อัตโนมัติ
+                       </p>
+                       <label className={`bg-white border border-gray-300 text-gray-700 px-3 py-2 rounded text-sm flex justify-center items-center font-bold shadow-sm transition-colors ${isUploadingBulk ? 'opacity-50 cursor-wait' : 'cursor-pointer hover:bg-indigo-100 border-indigo-300 text-indigo-700'}`}>
+                         {isUploadingBulk ? `กำลังอัปโหลด... ${bulkProgress}` : <><Upload size={14} className="mr-1"/> เลือกโฟลเดอร์หลัก (รวมหลายรุ่น)</>}
                          <input type="file" webkitdirectory="true" directory="true" multiple accept={ACCEPTED_IMAGE_FORMATS} className="hidden" disabled={isUploadingBulk} onChange={handleBulkUpload}/>
                        </label>
                     </div>
@@ -1680,7 +1701,7 @@ const App = () => {
 
   const saveData = async () => {
     if (!firebaseUser) return;
-    setSaving(true); setSaveStatus('กำลังบันทึก...');
+    setSaving(true); setSaveStatus('บันทึกสำเร็จ!');
     try {
       const pId = currentProjectId || Date.now().toString();
       const projData = { 
@@ -1689,7 +1710,7 @@ const App = () => {
       };
       await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'projects', pId), projData);
       setCurrentProjectId(pId);
-      setSaveStatus('บันทึกสำเร็จ!'); setTimeout(() => setSaveStatus(''), 3000);
+      setTimeout(() => setSaveStatus(''), 3000);
     } catch (err) { setSaveStatus('เกิดข้อผิดพลาด'); }
     setSaving(false);
   };

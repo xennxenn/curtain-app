@@ -119,9 +119,8 @@ const removeWhiteBackground = (dataUrl) => {
         const r = data[i], g = data[i+1], b = data[i+2];
         if (r > 190 && g > 190 && b > 190) {
           data[i+3] = 0;
-        } else {
-          data[i] = 20; data[i+1] = 20; data[i+2] = 40;
         }
+        // ลบโค้ดบังคับเปลี่ยนสีออก เพื่อให้คงสีหมึกเดิมจากภาพต้นฉบับไว้
       }
       ctx.putImageData(imgData, 0, 0);
       resolve(canvas.toDataURL('image/png'));
@@ -2033,10 +2032,12 @@ const App = () => {
                 </div>
                 
                 {/* Creator & Signature Section */}
-                <div className="mt-8 flex flex-col items-center justify-end relative h-20">
-                  {generalInfo.creatorSignature && (
-                    <img src={generalInfo.creatorSignature} className="absolute bottom-5 h-16 object-contain pointer-events-none mix-blend-multiply" alt="signature" />
-                  )}
+                <div className="mt-6 flex flex-col items-center justify-end w-full">
+                  <div className="h-16 flex items-end justify-center mb-1 w-full relative">
+                    {generalInfo.creatorSignature ? (
+                      <img src={generalInfo.creatorSignature} className="max-h-full max-w-[12rem] object-contain pointer-events-none mix-blend-multiply" alt="signature" />
+                    ) : null}
+                  </div>
                   {appUser.role === 'admin' ? (
                     <select 
                        value={generalInfo.creatorName || ''} 

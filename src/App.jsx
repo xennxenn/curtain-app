@@ -21,7 +21,6 @@ const appId = "curtain-app-3d38a";
 // ---------------------------------------------------------
 // ☁️ CLOUDINARY UPLOAD SETTINGS (ทดแทน IMGBB)
 // ---------------------------------------------------------
-// สามารถไปสมัครของตัวเองได้ฟรีที่ cloudinary.com
 const CLOUDINARY_URL = "https://api.cloudinary.com/v1_1/dsxpwfujb/image/upload";
 const CLOUDINARY_UPLOAD_PRESET = "ml_default"; 
 
@@ -55,6 +54,58 @@ const DEFAULT_ACCOUNTS = [
   { id: '1', username: 'Admin', password: '1234', role: 'admin', name: 'ผู้ดูแลระบบ', signatureUrl: '' },
   { id: '2', username: 'T65099', password: '65099', role: 'user', name: 'พนักงานทดสอบ', signatureUrl: '' }
 ];
+
+// --- Utility: AutoFit Text Component ---
+const AutoFitText = ({ text, className }) => {
+  const containerRef = useRef(null);
+  const textRef = useRef(null);
+  const [scale, setScale] = useState(1);
+
+  useEffect(() => {
+    const resizeText = () => {
+      if (!containerRef.current || !textRef.current) return;
+      const cw = containerRef.current.clientWidth;
+      const tw = textRef.current.scrollWidth;
+      
+      // ถ้าข้อความกว้างกว่ากล่อง ให้คำนวณสเกลย่อส่วนลงมา
+      if (tw > cw && cw > 0) {
+        setScale((cw - 4) / tw); // เผื่อขอบซ้ายขวาเล็กน้อย (4px)
+      } else {
+        setScale(1); // ถ้าไม่เกินก็ไม่ต้องย่อ (แสดงขนาดปกติที่ 13px)
+      }
+    };
+
+    resizeText();
+    
+    // รันซ้ำเผื่อ font โหลดช้า หรือ layout หน้าจอเพิ่งขยับเสร็จ
+    const timeoutId = setTimeout(resizeText, 150);
+
+    let observer;
+    if (window.ResizeObserver && containerRef.current) {
+      observer = new ResizeObserver(() => resizeText());
+      observer.observe(containerRef.current);
+    }
+
+    return () => {
+      clearTimeout(timeoutId);
+      if (observer) observer.disconnect();
+    };
+  }, [text]);
+
+  if (!text) return null;
+
+  return (
+      <div ref={containerRef} className="w-full overflow-hidden flex items-center justify-center min-h-[20px]">
+          <span 
+              ref={textRef} 
+              className={`font-bold whitespace-nowrap origin-center ${className || ''}`} 
+              style={{ fontSize: '13px', transform: `scale(${scale})`, display: 'inline-block' }}
+          >
+              {text}
+          </span>
+      </div>
+  );
+};
 
 // --- Utility: Alert/Confirm Dialog System ---
 const AlertDialog = ({ dialog, onClose }) => {
@@ -1012,7 +1063,7 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
       window.removeEventListener('mousemove', handleGlobalPanelMove);
       window.removeEventListener('touchmove', handleGlobalPanelMove);
       window.removeEventListener('mouseup', handleGlobalPanelUp);
-      window.removeEventListener('touchend', handleGlobalPanelUp);
+      window.removeEventListener('touchmove', handleGlobalPanelUp);
     }
   }, [draggingPanel, panelDragStart]);
 
@@ -1070,7 +1121,14 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
   const handleMouseMove = (e) => {
     const clientX = e.touches ? e.touches[0].clientX : e.clientX;
     const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-    if (mode === 'pan' && isPanning) { setPan({ x: clientX - isPanning.x, y: clientY - isPanning.y }); return; }
+    if (mode === 'pan' && isPanning) { 
+        if (e.cancelable) e.preventDefault();
+        setPan({ x: clientX - isPanning.x, y: clientY - isPanning.y }); 
+        return; 
+    }
+    if (mode === 'draw' && activeAreaId && isDrawing) {
+        if (e.cancelable) e.preventDefault();
+    }
     if (containerRef.current) {
       const rect = containerRef.current.getBoundingClientRect();
       const trueX = (clientX - rect.left - pan.x) / zoom;
@@ -1146,6 +1204,7 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
     <div ref={wrapperRef} className="flex flex-col w-full h-full relative border-b md:border-b-0 print:border-b-0 border-gray-300 bg-white">
       <div 
         className={`relative w-full flex-grow overflow-hidden bg-gray-100 ${mode === 'pan' ? (isPanning ? 'cursor-grabbing' : 'cursor-grab') : (activeAreaId && isDrawing ? 'cursor-crosshair' : 'cursor-default')}`}
+        style={{ touchAction: 'none' }}
         onWheel={handleWheel} 
         onMouseDown={handleMouseDown} onTouchStart={handleMouseDown}
         onMouseMove={handleMouseMove} onTouchMove={handleMouseMove}
@@ -1155,10 +1214,10 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
         {item.image ? (
           <>
             <div style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: '0 0' }} className={`w-full h-full absolute top-0 left-0 flex items-center justify-center transition-transform duration-75 ease-out ${(item.imageFit || 'fill') === 'fit' ? 'bg-white' : ''}`}>
-              <div ref={containerRef} className="relative flex items-center justify-center w-full h-full max-w-full max-h-full">
-                <img src={item.image} alt="Window view" className={`w-full h-full pointer-events-none block ${(item.imageFit || 'fill') === 'fit' ? 'object-contain' : 'object-cover'}`} />
+              <div ref={containerRef} className="relative max-w-full max-h-full" style={item.imageFit === 'fit' ? { display: 'inline-flex' } : { width: '100%', height: '100%', display: 'flex' }}>
+                <img src={item.image} alt="Window view" className="pointer-events-none block" style={item.imageFit === 'fit' ? { maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' } : { width: '100%', height: '100%', objectFit: 'cover' }} />
                 
-                <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none">
+                <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none" style={{ top: 0, left: 0 }}>
                   <defs>
                     {item.areas.map(area => {
                       const clipId = `clip-${idPrefix}-${item.id}-${area.id}`;
@@ -1170,7 +1229,7 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
                     })}
                   </defs>
 
-                  {item.areas.map(area => {
+                  {item.areas.map((area, idx) => {
                     if(area.points.length < 3) return null;
                     const minX = Math.min(...area.points.map(p=>p.x));
                     const maxX = Math.max(...area.points.map(p=>p.x));
@@ -1289,7 +1348,7 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
                   )}
                 </svg>
 
-                <svg className="absolute inset-0 w-full h-full pointer-events-none">
+                <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ top: 0, left: 0 }}>
                   {item.areas.map(area => {
                     const isActive = activeAreaId === area.id;
                     return (
@@ -1326,7 +1385,7 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
                   )}
                 </svg>
 
-                {item.areas.map(area => {
+                {item.areas.map((area, idx) => {
                   if(area.points.length === 0) return null;
                   
                   let wMidX = 50, wMidY = 0, wAng = 0;
@@ -1370,6 +1429,11 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
                   
                   return (
                     <div key={`labels-${area.id}`} className="absolute inset-0 pointer-events-none">
+                      {item.areas.length >= 2 && area.points[0] && (
+                        <div style={{ position: 'absolute', left: `${area.points[0].x}%`, top: `${area.points[0].y}%`, transform: `translate(-50%, -100%) translateY(-10px)`, color: area.lineColor, fontSize: `${12/zoom}px`, whiteSpace: 'nowrap' }} className="bg-white/90 px-1.5 py-0.5 rounded shadow-sm border border-gray-300 font-bold z-10 text-center">
+                          บานที่ {idx + 1}
+                        </div>
+                      )}
                       {area.width && (
                         <div style={{ position: 'absolute', left: `${wMidX}%`, top: `${wMidY}%`, transform: `translate(-50%, -50%) rotate(${wAng}deg)`, color: area.labelColor || area.lineColor, fontSize: `${lblSize}px`, whiteSpace: 'nowrap' }} className="bg-white/95 px-2 py-0.5 rounded shadow-md border border-gray-300 font-bold z-10 text-center">
                           {area.width} ซม.
@@ -1865,6 +1929,7 @@ const App = () => {
   };
 
   const handleMultiSelect = (itemId, field, value) => {
+    if (!value.trim()) return;
     setItems(prevItems => prevItems.map(item => {
       if (item.id === itemId) {
         const currentList = item[field] || [];
@@ -1982,6 +2047,9 @@ const App = () => {
     );
   }
 
+  const currentCreatorAcc = allAccounts.find(a => (a.name || a.username) === generalInfo.creatorName);
+  const displayCreatorName = generalInfo.creatorName || '-';
+
   return (
     <div className="min-h-screen bg-gray-100 py-8 font-sans print:p-0">
       <AlertDialog dialog={dialog} onClose={() => setDialog(null)} />
@@ -2043,21 +2111,21 @@ const App = () => {
         }
       `}</style>
 
-      <div className="max-w-[1200px] mx-auto bg-white shadow-lg p-6 md:p-8 rounded-sm relative z-0 print:shadow-none print:p-0 print:bg-transparent w-full print:max-w-none">
+      <div className="max-w-[1200px] mx-auto bg-white shadow-lg p-4 md:p-8 rounded-sm relative z-0 print:shadow-none print:p-0 print:bg-transparent w-full print:max-w-none">
         
         {/* --- Page 1: General Info --- */}
         <div className="print-center-page w-full">
           <div className="print-content-wrapper w-full">
             <div className="text-center mb-6 border-b-2 border-gray-800 pb-3 flex justify-between items-center avoid-break relative">
-              <button onClick={()=>{saveData(); setView('dashboard');}} className="absolute -left-16 md:-left-20 top-1/2 transform -translate-y-1/2 no-print bg-gray-200 hover:bg-gray-300 text-gray-700 p-2 rounded-full shadow-md transition-colors"><ArrowLeft size={24}/></button>
-              <div className="w-1/3 text-left no-print flex gap-2">
-                {appUser.role === 'admin' && <button onClick={()=>setShowDBSettings(true)} className="bg-gray-700 text-white px-4 py-2 rounded flex items-center hover:bg-gray-800 text-sm shadow font-bold transition-colors"><Settings size={16} className="mr-2"/> ฐานข้อมูล</button>}
+              <button onClick={()=>{saveData(); setView('dashboard');}} className="absolute -left-12 md:-left-20 top-1/2 transform -translate-y-1/2 no-print bg-gray-200 hover:bg-gray-300 text-gray-700 p-2 rounded-full shadow-md transition-colors"><ArrowLeft size={24}/></button>
+              <div className="w-1/3 text-left no-print flex flex-col md:flex-row gap-2">
+                {appUser.role === 'admin' && <button onClick={()=>setShowDBSettings(true)} className="bg-gray-700 text-white px-3 py-2 rounded flex items-center hover:bg-gray-800 text-xs shadow font-bold transition-colors w-fit"><Settings size={16} className="mr-1.5"/> ฐานข้อมูล</button>}
               </div>
-              <h1 className="text-2xl font-bold text-gray-800 w-1/3">ใบสรุปงานติดตั้งผ้าม่าน</h1>
+              <h1 className="text-xl md:text-2xl font-bold text-gray-800 w-1/3">ใบสรุปงานติดตั้งผ้าม่าน</h1>
               <div className="w-1/3 text-right"></div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-4 avoid-break text-sm relative z-0">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 mb-4 avoid-break text-sm relative z-0">
               <div className="p-4 border border-gray-300 rounded-md bg-gray-50">
                 <h2 className="font-bold mb-3 border-b border-gray-300 pb-1 inline-block text-base text-gray-800">ส่วนผู้จัดทำ</h2>
                 <div className="space-y-2.5">
@@ -2094,11 +2162,11 @@ const App = () => {
                     </select>
                   ) : (
                     <div className="border-b border-gray-400 w-48 text-center text-[15px] font-bold text-blue-800 print-hidden relative z-10 pb-0.5">
-                      {generalInfo.creatorName || '-'}
+                      {displayCreatorName}
                     </div>
                   )}
                   <div className="hidden print-block w-48 text-center text-[15px] font-bold border-b border-gray-400 pb-0.5 text-black relative z-10">
-                    {generalInfo.creatorName || '-'}
+                    {displayCreatorName}
                   </div>
                   <p className="text-gray-600 text-sm font-bold mt-1">ผู้จัดทำ</p>
                 </div>
@@ -2130,9 +2198,8 @@ const App = () => {
         <hr className="my-6 border-gray-300 no-print" />
 
         {/* --- Page 2+: Items Mapping --- */}
-        <div className="space-y-10 print:space-y-0 w-full">
+        <div className="space-y-10 print:space-y-0 w-full flex flex-col items-center">
           {items.map((item, index) => {
-            // Default Thumbnail Images Logic
             const primaryArea = item.areas[0] || {};
             const sMain1 = primaryArea.styleMain1 || item.styleMain1 || item.styleMain || '';
             const sMain2 = primaryArea.styleMain2 || item.styleMain2 || '';
@@ -2174,50 +2241,48 @@ const App = () => {
                   <div className="absolute top-0 left-0 bg-gray-800 text-white px-4 py-1.5 text-sm font-bold z-10 rounded-br">รายการที่ {index + 1}</div>
                   <button onClick={() => removeItem(item.id)} className="no-print absolute -top-3 -right-3 bg-red-500 text-white rounded-full p-2 hover:bg-red-600 shadow z-20 transition-transform hover:scale-110"><Trash2 size={16} /></button>
 
-                  <div className="border border-gray-300 flex flex-col md:flex-row print:flex-row h-auto md:h-[750px] print:h-[185mm] mt-8 md:mt-0 bg-white relative overflow-hidden w-full box-border">
+                  <div className="border border-gray-300 flex flex-col lg:flex-row print:flex-row h-auto lg:h-[750px] print:h-[185mm] mt-8 md:mt-0 bg-white relative overflow-hidden w-full box-border">
                     
                     {/* Left Column 70% */}
-                    <div className="w-full md:w-[70%] print:w-[70%] h-[500px] md:h-full print:h-full border-b md:border-b-0 print:border-b-0 md:border-r print:border-r border-gray-300 flex flex-col bg-white relative z-20">
+                    <div className="w-full lg:w-[70%] print:w-[70%] min-h-[400px] h-[50vh] sm:h-[60vh] lg:h-full print:h-full border-b lg:border-b-0 print:border-b-0 lg:border-r print:border-r border-gray-300 flex flex-col bg-white relative z-20">
                       
-                      <div className="h-[70%] w-full border-b border-gray-300 flex flex-col relative bg-gray-100 shrink-0">
+                      <div className="flex-1 w-full border-b border-gray-300 flex flex-col relative bg-gray-100 shrink-0 overflow-hidden">
                         <ImageAreaEditor item={item} appDB={appDB} handleItemChange={handleItemChange} setDialog={setDialog} idPrefix="print" />
                       </div>
                       
-                      <div className="h-[30%] w-full p-2 bg-gray-50 flex items-center overflow-x-auto">
-                        <div className="w-full h-full min-w-[400px] md:min-w-0 grid grid-cols-4 gap-2 sm:gap-3 print:gap-4">
+                      <div className="h-[25%] lg:h-[30%] print:h-[30%] min-h-[100px] w-full p-2 bg-gray-50 flex items-center overflow-x-auto">
+                        <div className="w-full h-full min-w-[350px] md:min-w-[400px] grid grid-cols-4 gap-1.5 sm:gap-2 print:gap-4">
                           
-                          <div className="flex flex-col items-center bg-white border border-gray-200 p-2 rounded shadow-sm h-full justify-between overflow-hidden">
-                            <span className="text-[13px] font-bold text-gray-800 w-full text-center mb-2 shrink-0">รูปแบบม่าน</span>
-                            <div className="flex-1 w-full bg-gray-50 border border-gray-100 flex items-center justify-center rounded overflow-hidden p-0 relative mb-2">
-                              {styleImg1 ? <img src={styleImg1} className="w-full h-full object-cover" /> : <img src={SVGS.style_default} className="max-w-[50px] max-h-[50px] opacity-50" />}
+                          <div className="flex flex-col items-center bg-white border border-gray-200 p-1.5 sm:p-2 rounded shadow-sm h-full justify-between overflow-hidden">
+                            <span className="text-[11px] sm:text-[13px] font-bold text-gray-800 w-full text-center mb-1 sm:mb-2 shrink-0">รูปแบบม่าน</span>
+                            <div className="flex-1 w-full bg-gray-50 border border-gray-100 flex items-center justify-center rounded overflow-hidden p-0 relative mb-1 sm:mb-2">
+                              {styleImg1 ? <img src={styleImg1} className="w-full h-full object-cover" /> : <div dangerouslySetInnerHTML={{__html: SVGS.th}} className="w-full h-full" />}
                             </div>
-                            <span className="text-[11px] text-blue-800 print:text-black print:whitespace-normal print:break-words w-full text-center font-bold shrink-0">
-                              {sMain1 || '-'} {item.layers === 2 ? ` / ${sMain2 || '-'}` : ''}
-                            </span>
+                            <AutoFitText text={`${sMain1 || '-'} ${item.layers === 2 ? `/ ${sMain2 || '-'}` : ''}`} className="text-blue-800 print:text-black" />
                           </div>
 
-                          <div className="flex flex-col items-center bg-white border border-gray-200 p-2 rounded shadow-sm h-full justify-between overflow-hidden">
-                            <span className="text-[13px] font-bold text-gray-800 w-full text-center mb-2 shrink-0">{txtMain || 'ชั้นที่ 1'}</span>
-                            <div className="flex-1 w-full border border-gray-100 flex items-center justify-center rounded overflow-hidden bg-gray-50 p-0 mb-2">
+                          <div className="flex flex-col items-center bg-white border border-gray-200 p-1.5 sm:p-2 rounded shadow-sm h-full justify-between overflow-hidden">
+                            <span className="text-[11px] sm:text-[13px] font-bold text-gray-800 w-full text-center mb-1 sm:mb-2 shrink-0">{txtMain || 'ชั้นที่ 1'}</span>
+                            <div className="flex-1 w-full border border-gray-100 flex items-center justify-center rounded overflow-hidden bg-gray-50 p-0 mb-1 sm:mb-2">
                               {imgMain ? <img src={imgMain} className="w-full h-full object-cover" /> : <span className="text-[10px] text-gray-400">-</span>}
                             </div>
-                            <span className="text-[11px] text-gray-700 w-full text-center font-bold shrink-0 print:whitespace-normal print:break-words">{colMain || '-'}</span>
+                            <AutoFitText text={colMain || '-'} className="text-gray-700" />
                           </div>
 
-                          <div className={`flex flex-col items-center bg-white border border-gray-200 p-2 rounded shadow-sm h-full justify-between overflow-hidden ${item.layers === 1 ? 'opacity-40 print:opacity-50' : ''}`}>
-                            <span className="text-[13px] font-bold text-gray-800 w-full text-center mb-2 shrink-0">{item.layers === 2 ? (txtSheer || 'ชั้นที่ 2') : 'ชั้นที่ 2'}</span>
-                            <div className="flex-1 w-full border border-gray-100 flex items-center justify-center rounded overflow-hidden bg-gray-50 p-0 mb-2">
+                          <div className={`flex flex-col items-center bg-white border border-gray-200 p-1.5 sm:p-2 rounded shadow-sm h-full justify-between overflow-hidden ${item.layers === 1 ? 'opacity-40 print:opacity-50' : ''}`}>
+                            <span className="text-[11px] sm:text-[13px] font-bold text-gray-800 w-full text-center mb-1 sm:mb-2 shrink-0">{item.layers === 2 ? (txtSheer || 'ชั้นที่ 2') : 'ชั้นที่ 2'}</span>
+                            <div className="flex-1 w-full border border-gray-100 flex items-center justify-center rounded overflow-hidden bg-gray-50 p-0 mb-1 sm:mb-2">
                               {item.layers === 2 && imgSheer ? <img src={imgSheer} className="w-full h-full object-cover" /> : <span className="text-[10px] text-gray-400">-</span>}
                             </div>
-                            <span className="text-[11px] text-gray-700 w-full text-center font-bold shrink-0 print:whitespace-normal print:break-words">{item.layers === 2 ? (colSheer || '-') : '-'}</span>
+                            <AutoFitText text={item.layers === 2 ? (colSheer || '-') : '-'} className="text-gray-700" />
                           </div>
 
-                          <div className="flex flex-col items-center bg-white border border-gray-200 p-2 rounded shadow-sm h-full justify-between overflow-hidden">
-                            <span className="text-[13px] font-bold text-gray-800 w-full text-center mb-2 shrink-0">ระยะชายม่าน</span>
-                            <div className="flex-1 w-full bg-gray-50 border border-gray-100 flex items-center justify-center rounded overflow-hidden p-0 mb-2">
+                          <div className="flex flex-col items-center bg-white border border-gray-200 p-1.5 sm:p-2 rounded shadow-sm h-full justify-between overflow-hidden">
+                            <span className="text-[11px] sm:text-[13px] font-bold text-gray-800 w-full text-center mb-1 sm:mb-2 shrink-0">ระยะชายม่าน</span>
+                            <div className="flex-1 w-full bg-gray-50 border border-gray-100 flex items-center justify-center rounded overflow-hidden p-0 mb-1 sm:mb-2">
                               {marginImg ? <img src={marginImg} className="w-full h-full object-cover" /> : <span className="text-[10px] text-gray-400">-</span>}
                             </div>
-                            <span className="text-[11px] text-gray-700 w-full text-center font-bold shrink-0 print:whitespace-normal print:break-words">{item.marginBottom || '-'}</span>
+                            <AutoFitText text={item.marginBottom || '-'} className="text-gray-700" />
                           </div>
 
                         </div>
@@ -2225,7 +2290,7 @@ const App = () => {
                     </div>
 
                     {/* Right Column 30% */}
-                    <div className="w-full md:w-[30%] print:w-[30%] text-xs flex flex-col bg-white overflow-y-auto print:overflow-visible h-[600px] md:h-full print:h-auto relative z-10 print:justify-start">
+                    <div className="w-full lg:w-[30%] print:w-[30%] text-xs flex flex-col bg-white overflow-y-auto print:overflow-visible min-h-[400px] lg:h-full print:h-auto relative z-10 print:justify-start">
                       
                       <div className="bg-gray-800 text-white p-3 print:bg-white print:text-black print:p-3 print:pb-0 flex flex-col shrink-0">
                         <span className="mb-1 text-gray-300 print-hidden font-bold text-xs">ห้อง / ตำแหน่ง :</span>
@@ -2255,14 +2320,33 @@ const App = () => {
                               {/* Fabrics List for this area */}
                               {area.fabrics.map((fab) => {
                                 const isCustom = fab.mainType === 'ผ้านอกระบบ (เฉพาะงานนี้)';
+                                const isCurtain = fab.mainType === 'ผ้าม่าน';
                                 const mainTypeOptions = [...Object.keys(appDB.curtainTypes || {}), ...(generalInfo.customFabrics?.length > 0 ? ['ผ้านอกระบบ (เฉพาะงานนี้)'] : [])];
-                                let subTypeOptions = []; let nameOptions = []; let colorOptions = [];
+                                
+                                let subTypeOptions = []; 
+                                let nameOptions = []; 
+                                let colorOptions = [];
+                                
+                                // Combined models for 'ผ้าม่าน'
+                                let curtainModels = [];
+                                if (isCurtain && appDB.curtainTypes['ผ้าม่าน']) {
+                                    Object.entries(appDB.curtainTypes['ผ้าม่าน']).forEach(([sT, mods]) => {
+                                        Object.keys(mods).forEach(mName => curtainModels.push({ modelName: mName, subType: sT }));
+                                    });
+                                    curtainModels.sort((a,b) => a.modelName.localeCompare(b.modelName));
+                                }
 
-                                if(isCustom) {
+                                if (isCustom) {
                                   const cFabs = generalInfo.customFabrics || [];
                                   subTypeOptions = [...new Set(cFabs.map(f=>f.subType))].filter(Boolean).sort((a,b)=>a.localeCompare(b));
                                   nameOptions = [...new Set(cFabs.filter(f=>f.subType === fab.subType).map(f=>f.name))].filter(Boolean).sort((a,b)=>a.localeCompare(b));
                                   colorOptions = [...new Set(cFabs.filter(f=>f.subType === fab.subType && f.name === fab.name).map(f=>f.color))].filter(Boolean).sort((a,b)=>a.localeCompare(b));
+                                } else if (isCurtain) {
+                                  nameOptions = curtainModels.map(m => m.modelName);
+                                  const matchModel = curtainModels.find(m => m.modelName === fab.name);
+                                  if (matchModel) {
+                                      colorOptions = Object.keys(appDB.curtainTypes['ผ้าม่าน'][matchModel.subType][fab.name] || {}).sort();
+                                  }
                                 } else {
                                   subTypeOptions = fab.mainType ? Object.keys(appDB.curtainTypes[fab.mainType] || {}).sort((a,b)=>a.localeCompare(b)) : [];
                                   nameOptions = fab.subType ? Object.keys(appDB.curtainTypes[fab.mainType]?.[fab.subType] || {}).sort((a,b)=>a.localeCompare(b)) : [];
@@ -2277,16 +2361,27 @@ const App = () => {
                                     <button onClick={()=>removeFabric(item.id, area.id, fab.id)} className="absolute top-1 right-1 text-red-500 hover:bg-red-50 rounded no-print transition-colors"><X size={14}/></button>
                                     <div className="flex flex-col gap-1.5">
                                       <div className="flex gap-1.5">
-                                        <select value={fab.mainType} onChange={(e)=>updateFabric(item.id, area.id, fab.id, 'mainType', e.target.value)} className={`w-1/2 border-b border-gray-300 outline-none text-[11px] bg-transparent font-bold ${isCustom ? 'text-indigo-600' : 'text-gray-700'}`}>
+                                        <select value={fab.mainType} onChange={(e)=>updateFabric(item.id, area.id, fab.id, 'mainType', e.target.value)} className={`border-b border-gray-300 outline-none text-[11px] bg-transparent font-bold ${isCustom ? 'text-indigo-600' : 'text-gray-700'} ${isCurtain ? 'w-full' : 'w-1/2'}`}>
                                           <option value="">-หมวดหมู่-</option>{mainTypeOptions.map(o=><option key={o} value={o}>{o}</option>)}
                                         </select>
-                                        <select value={fab.subType} onChange={(e)=>updateFabric(item.id, area.id, fab.id, 'subType', e.target.value)} className="w-1/2 border-b border-gray-300 outline-none text-[11px] bg-transparent font-bold text-indigo-700" disabled={!fab.mainType}>
-                                          <option value="">-ประเภทม่าน-</option>{subTypeOptions.map(o=><option key={o} value={o}>{o}</option>)}
-                                        </select>
+                                        {!isCurtain && (
+                                            <select value={fab.subType} onChange={(e)=>updateFabric(item.id, area.id, fab.id, 'subType', e.target.value)} className="w-1/2 border-b border-gray-300 outline-none text-[11px] bg-transparent font-bold text-indigo-700" disabled={!fab.mainType}>
+                                              <option value="">-ประเภทม่าน-</option>{subTypeOptions.map(o=><option key={o} value={o}>{o}</option>)}
+                                            </select>
+                                        )}
                                       </div>
                                       <div className="flex gap-1.5">
                                         <div className="w-1/2 relative">
-                                          <input list={nameListId} value={fab.name} onChange={(e)=>updateFabric(item.id, area.id, fab.id, 'name', e.target.value)} className="w-full border-b border-gray-300 outline-none text-[11px] bg-transparent font-medium" disabled={!fab.subType} placeholder="-พิมพ์ค้นหารุ่น-"/>
+                                          <input list={nameListId} value={fab.name} onChange={(e) => {
+                                             const val = e.target.value.toUpperCase();
+                                             if (isCurtain) {
+                                                 const match = curtainModels.find(m => m.modelName === val);
+                                                 const sType = match ? match.subType : fab.subType;
+                                                 setItems(prev => prev.map(it => it.id === item.id ? { ...it, areas: it.areas.map(a => a.id === area.id ? { ...a, fabrics: a.fabrics.map(f => f.id === fab.id ? { ...f, name: val, subType: sType, color: '' } : f) } : a) } : it));
+                                             } else {
+                                                 updateFabric(item.id, area.id, fab.id, 'name', val);
+                                             }
+                                          }} className="w-full border-b border-gray-300 outline-none text-[11px] bg-transparent font-medium" disabled={!fab.mainType || (!isCurtain && !fab.subType)} placeholder="-พิมพ์ค้นหารุ่น-"/>
                                           <datalist id={nameListId}>{nameOptions.map(o=><option key={o} value={o}/>)}</datalist>
                                         </div>
                                         <div className="w-1/2 relative">
@@ -2363,8 +2458,12 @@ const App = () => {
 
                           <div className="flex flex-col"><span className="font-bold text-gray-800 text-[14px] border-b border-gray-300 pb-1 mb-1">รางม่าน</span>
                             <div className="flex flex-wrap gap-1.5 mt-1">
-                              {item.tracks?.map(t => <span key={t} className="bg-gray-100 px-2 py-0.5 rounded border border-gray-300 text-[12px] flex items-center shadow-sm font-bold text-gray-800">{t} <X size={10} className="ml-1 cursor-pointer text-red-500 no-print" onClick={()=>handleMultiSelect(item.id, 'tracks', t)}/></span>)}
-                              <select className="w-full border-b border-gray-300 outline-none no-print mt-1 text-[11px] text-gray-500 font-medium bg-transparent" onChange={(e) => {if(e.target.value) handleMultiSelect(item.id, 'tracks', e.target.value); e.target.value='';}}><option value="">+ เพิ่มชนิดรางม่าน</option>{(appDB.tracks || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
+                              {item.tracks?.map(tStr => <span key={tStr} className="bg-gray-100 px-2 py-0.5 rounded border border-gray-300 text-[12px] flex items-center shadow-sm font-bold text-gray-800">{tStr} <X size={10} className="ml-1 cursor-pointer text-red-500 no-print" onClick={()=>handleMultiSelect(item.id, 'tracks', tStr)}/></span>)}
+                              <select className="w-full border-b border-gray-300 outline-none no-print mt-1 text-[11px] text-gray-500 font-medium bg-transparent" onChange={(e) => {if(e.target.value) handleMultiSelect(item.id, 'tracks', e.target.value); e.target.value='';}}><option value="">+ เลือกชนิดรางม่าน</option>{(appDB.tracks || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
+                              <div className="flex w-full gap-1 mt-1 no-print">
+                                 <input type="text" id={`customTrack-${item.id}`} placeholder="หรือพิมพ์ระบุเอง..." className="flex-1 border border-gray-200 rounded px-2 py-1 outline-none text-[11px] bg-white shadow-sm focus:border-blue-400" onKeyDown={(e) => { if(e.key === 'Enter' && e.target.value.trim()) { handleMultiSelect(item.id, 'tracks', e.target.value.trim()); e.target.value=''; } }} />
+                                 <button onClick={() => { const inp = document.getElementById(`customTrack-${item.id}`); if(inp && inp.value.trim()) { handleMultiSelect(item.id, 'tracks', inp.value.trim()); inp.value=''; } }} className="bg-blue-50 hover:bg-blue-100 text-blue-600 border border-blue-200 px-2 py-1 rounded text-[11px] font-bold shadow-sm transition-colors">+</button>
+                              </div>
                             </div>
                           </div>
 
@@ -2383,8 +2482,12 @@ const App = () => {
 
                           <div className="flex flex-col mt-1"><span className="font-bold text-gray-800 text-[14px] border-b border-gray-300 pb-1 mb-1">อุปกรณ์เสริม</span>
                             <div className="flex flex-wrap gap-1.5 mt-1">
-                              {item.accessories?.map(t => <span key={t} className="bg-gray-100 px-2 py-0.5 rounded border border-gray-300 text-[12px] flex items-center shadow-sm font-bold text-gray-800">{t} <X size={10} className="ml-1 cursor-pointer text-red-500 no-print" onClick={()=>handleMultiSelect(item.id, 'accessories', t)}/></span>)}
-                              <select className="w-full border-b border-gray-300 outline-none no-print mt-1 text-[11px] text-gray-500 font-medium bg-transparent" onChange={(e) => {if(e.target.value) handleMultiSelect(item.id, 'accessories', e.target.value); e.target.value='';}}><option value="">+ เพิ่มอุปกรณ์เสริม</option>{(appDB.accessories || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
+                              {item.accessories?.map(tStr => <span key={tStr} className="bg-gray-100 px-2 py-0.5 rounded border border-gray-300 text-[12px] flex items-center shadow-sm font-bold text-gray-800">{tStr} <X size={10} className="ml-1 cursor-pointer text-red-500 no-print" onClick={()=>handleMultiSelect(item.id, 'accessories', tStr)}/></span>)}
+                              <select className="w-full border-b border-gray-300 outline-none no-print mt-1 text-[11px] text-gray-500 font-medium bg-transparent" onChange={(e) => {if(e.target.value) handleMultiSelect(item.id, 'accessories', e.target.value); e.target.value='';}}><option value="">+ เลือกอุปกรณ์เสริม</option>{(appDB.accessories || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
+                              <div className="flex w-full gap-1 mt-1 no-print">
+                                 <input type="text" id={`customAcc-${item.id}`} placeholder="หรือพิมพ์ระบุเอง..." className="flex-1 border border-gray-200 rounded px-2 py-1 outline-none text-[11px] bg-white shadow-sm focus:border-blue-400" onKeyDown={(e) => { if(e.key === 'Enter' && e.target.value.trim()) { handleMultiSelect(item.id, 'accessories', e.target.value.trim()); e.target.value=''; } }} />
+                                 <button onClick={() => { const inp = document.getElementById(`customAcc-${item.id}`); if(inp && inp.value.trim()) { handleMultiSelect(item.id, 'accessories', inp.value.trim()); inp.value=''; } }} className="bg-blue-50 hover:bg-blue-100 text-blue-600 border border-blue-200 px-2 py-1 rounded text-[11px] font-bold shadow-sm transition-colors">+</button>
+                              </div>
                             </div>
                           </div>
                         </div>

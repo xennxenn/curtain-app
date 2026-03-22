@@ -2241,7 +2241,7 @@ const App = () => {
               
               <div className="w-1/3 text-left flex items-center gap-4">
                 {/* เปลี่ยนโครงสร้างลิงก์ Google Drive เพื่อให้แสดงผลบนเว็บได้ */}
-                <img src="https://lh3.googleusercontent.com/d/1xT2ysUSWkTcFxs1ztoGxZuQcnO_c66Tu" alt="Logo" className="h-10 md:h-14 lg:h-16 object-contain" />
+                <img src="https://lh3.googleusercontent.com/d/1xT2ysUSWkTcFxs1ztoGxZuQcnO_c66Tu" alt="Logo" className="h-10 md:h-14 lg:h-16 object-contain mix-blend-multiply" />
                 <div className="no-print">
                   {appUser.role === 'admin' && <button onClick={()=>setShowDBSettings(true)} className="bg-gray-700 text-white px-3 py-2 rounded flex items-center hover:bg-gray-800 text-xs shadow font-bold transition-colors w-fit"><Settings size={16} className="mr-1.5"/> <span className="hidden md:inline">ฐานข้อมูล</span></button>}
                 </div>

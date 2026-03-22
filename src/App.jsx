@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Trash2, Printer, Image as ImageIcon, Upload, Download, Save, X, MousePointerClick, Settings, Database, Eye, EyeOff, Move, Users, LogOut, FileText, ArrowLeft, Share2, ChevronLeft, ChevronRight, ImagePlus } from 'lucide-react';
+import { Plus, Trash2, Printer, Image as ImageIcon, Upload, Download, Save, X, MousePointerClick, Settings, Database, Eye, EyeOff, Move, Users, LogOut, FileText, ArrowLeft, Share2, ChevronLeft, ChevronRight, ImagePlus, Undo, Redo, Copy, ChevronUp, ChevronDown } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, doc, setDoc, getDoc, collection, getDocs, deleteDoc, onSnapshot } from 'firebase/firestore';
@@ -1587,6 +1587,7 @@ const App = () => {
   const [view, setView] = useState('dashboard'); 
   const [projectsList, setProjectsList] = useState([]);
   const [currentProjectId, setCurrentProjectId] = useState(null);
+  const [projectOwner, setProjectOwner] = useState(''); // NEW: Tracker for actual project owner
   const [saving, setSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState('');
   const [appDB, setAppDB] = useState(DEFAULT_DB);
@@ -1605,6 +1606,12 @@ const App = () => {
   const [bgUploadProgress, setBgUploadProgress] = useState({ current: 0, total: 0, active: false });
   const processingRef = useRef(false);
   const appDBRef = useRef(appDB);
+
+  // Undo / Redo System
+  const historyRef = useRef([]);
+  const historyIndexRef = useRef(-1);
+  const isUndoRedoAction = useRef(false);
+  const [, setForceUpdate] = useState(false);
 
   const [generalInfo, setGeneralInfo] = useState({
     surveyDate: new Date().toISOString().split('T')[0], confirmDate: '', installDates: [], location: '',
@@ -1660,6 +1667,57 @@ const App = () => {
   useEffect(() => {
     if (firebaseUser && appUser && view === 'dashboard') loadProjectsList();
   }, [firebaseUser, appUser, view]);
+
+  // Track History for Undo/Redo (Debounced by 400ms)
+  useEffect(() => {
+    if (view !== 'editor') return; // Track only when editing
+    if (isUndoRedoAction.current) {
+        isUndoRedoAction.current = false;
+        return;
+    }
+    const timer = setTimeout(() => {
+        const currentState = JSON.stringify({ generalInfo, items });
+        const lastState = historyRef.current[historyIndexRef.current];
+
+        if (currentState !== lastState) {
+            // Cut off any future states if we are rewriting history
+            historyRef.current = historyRef.current.slice(0, historyIndexRef.current + 1);
+            historyRef.current.push(currentState);
+            
+            // Limit history to 50 steps to save memory
+            if (historyRef.current.length > 50) {
+                historyRef.current.shift();
+            } else {
+                historyIndexRef.current++;
+            }
+            setForceUpdate(prev => !prev);
+        }
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [generalInfo, items, view]);
+
+  const undo = () => {
+    if (historyIndexRef.current > 0) {
+        isUndoRedoAction.current = true;
+        historyIndexRef.current--;
+        const previousState = JSON.parse(historyRef.current[historyIndexRef.current]);
+        setGeneralInfo(previousState.generalInfo);
+        setItems(previousState.items);
+        setForceUpdate(prev => !prev);
+    }
+  };
+
+  const redo = () => {
+    if (historyIndexRef.current < historyRef.current.length - 1) {
+        isUndoRedoAction.current = true;
+        historyIndexRef.current++;
+        const nextState = JSON.parse(historyRef.current[historyIndexRef.current]);
+        setGeneralInfo(nextState.generalInfo);
+        setItems(nextState.items);
+        setForceUpdate(prev => !prev);
+    }
+  };
 
   // Real-time DB Sync Fix - 100% Online Only with Recovery
   useEffect(() => {
@@ -1770,6 +1828,12 @@ const App = () => {
     setCurrentProjectId(Date.now().toString());
     const currentUserInfo = allAccounts.find(u => u.username === appUser.username) || appUser;
     
+    setProjectOwner(appUser.username); // Set owner for new project
+
+    // Reset History for new project
+    historyRef.current = [];
+    historyIndexRef.current = -1;
+
     setGeneralInfo({
       surveyDate: new Date().toISOString().split('T')[0], confirmDate: '', installDates: [], location: '',
       customerName: '', customerPhone: '', agentName: '', agentPhone: '', customFabrics: [],
@@ -1794,6 +1858,12 @@ const App = () => {
         if (!cName || cName === proj.owner) cName = ownerAcc.name || ownerAcc.username;
         if (!cSig) cSig = ownerAcc.signatureUrl || '';
     }
+
+    setProjectOwner(proj.owner || appUser.username); // Preserve owner
+
+    // Reset History when opening existing project
+    historyRef.current = [];
+    historyIndexRef.current = -1;
 
     setGeneralInfo({ 
        ...proj.generalInfo, 
@@ -1831,7 +1901,7 @@ const App = () => {
       const pId = currentProjectId || Date.now().toString();
       const projData = { 
         generalInfo, items, updatedAt: new Date().toISOString(),
-        owner: appUser.role === 'admin' && projectsList.find(p=>p.id === pId)?.owner ? projectsList.find(p=>p.id === pId).owner : appUser.username 
+        owner: projectOwner || appUser.username
       };
       await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'projects', pId), projData);
       setCurrentProjectId(pId);
@@ -1853,12 +1923,22 @@ const App = () => {
   
   const handleCreatorChange = (e) => {
     const val = e.target.value;
+    if (!val) return;
     const u = allAccounts.find(acc => (acc.name || acc.username) === val);
-    setGeneralInfo(prev => ({
-      ...prev,
-      creatorName: val,
-      creatorSignature: u ? (u.signatureUrl || '') : prev.creatorSignature
-    }));
+    
+    // แสดง Dialog ยืนยันการเปลี่ยนเจ้าของงาน
+    setDialog({
+      type: 'confirm',
+      message: `ยืนยันการเปลี่ยนผู้จัดทำเป็น "${val}" ใช่หรือไม่?\n\n(การเปลี่ยนผู้จัดทำ จะโอนสิทธิ์ความเป็นเจ้าของงานให้พนักงานคนนี้ในหน้า Dashboard ทันที)`,
+      onConfirm: () => {
+        setGeneralInfo(prev => ({
+          ...prev,
+          creatorName: val,
+          creatorSignature: u ? (u.signatureUrl || '') : prev.creatorSignature
+        }));
+        if (u) setProjectOwner(u.username); // เปลี่ยน Owner จริงในระบบ
+      }
+    });
   };
 
   const addInstallDate = () => { if (tempInstallDate && !generalInfo.installDates.includes(tempInstallDate)) { setGeneralInfo(prev => ({ ...prev, installDates: [...prev.installDates, tempInstallDate] })); setTempInstallDate(''); } };
@@ -1875,6 +1955,47 @@ const App = () => {
   
   const removeItem = (id) => setItems(prev => prev.filter(item => item.id !== id));
   
+  // --- NEW: ฟังก์ชันทำสำเนาและจัดลำดับหน้าต่าง ---
+  const duplicateItem = (index) => {
+    const itemToDuplicate = items[index];
+    const newItem = JSON.parse(JSON.stringify(itemToDuplicate)); // Deep copy
+    
+    // สร้าง ID ใหม่ทั้งหมดเพื่อไม่ให้ Key ชนกันและแก้ไขแยกกันได้
+    newItem.id = Date.now().toString() + '_' + Math.random().toString(36).substr(2, 5);
+    newItem.areas = newItem.areas.map(area => ({
+      ...area,
+      id: Date.now().toString() + '_a' + Math.random().toString(36).substr(2, 5),
+      fabrics: area.fabrics.map(fab => ({
+        ...fab,
+        id: Date.now().toString() + '_f' + Math.random().toString(36).substr(2, 5)
+      }))
+    }));
+
+    setItems(prev => {
+      const newItems = [...prev];
+      newItems.splice(index + 1, 0, newItem); // แทรกต่อท้ายรายการเดิม
+      return newItems;
+    });
+  };
+
+  const moveItemUp = (index) => {
+    if (index === 0) return;
+    setItems(prev => {
+      const newItems = [...prev];
+      [newItems[index - 1], newItems[index]] = [newItems[index], newItems[index - 1]];
+      return newItems;
+    });
+  };
+
+  const moveItemDown = (index) => {
+    if (index === items.length - 1) return;
+    setItems(prev => {
+      const newItems = [...prev];
+      [newItems[index], newItems[index + 1]] = [newItems[index + 1], newItems[index]];
+      return newItems;
+    });
+  };
+
   const handleItemChange = (id, field, value) => {
     setItems(prevItems => prevItems.map(item => item.id === id ? { ...item, [field]: value } : item));
   };
@@ -2047,7 +2168,6 @@ const App = () => {
     );
   }
 
-  const currentCreatorAcc = allAccounts.find(a => (a.name || a.username) === generalInfo.creatorName);
   const displayCreatorName = generalInfo.creatorName || '-';
 
   return (
@@ -2168,7 +2288,7 @@ const App = () => {
                   <div className="hidden print-block w-48 text-center text-[15px] font-bold border-b border-gray-400 pb-0.5 text-black relative z-10">
                     {displayCreatorName}
                   </div>
-                  <p className="text-gray-600 text-sm font-bold mt-1">ผู้จัดทำ</p>
+                  <p className="text-gray-600 text-sm font-bold mt-1">ผู้จัดทำ/เจ้าของงาน</p>
                 </div>
               </div>
 
@@ -2239,7 +2359,26 @@ const App = () => {
               <div key={item.id} className="print-center-page w-full relative mb-10 print:mb-0">
                 <div className="print-content-wrapper w-full border-2 border-gray-800 p-1 relative rounded bg-white hover:z-50 transition-all duration-300 shadow-sm hover:shadow-md">
                   <div className="absolute top-0 left-0 bg-gray-800 text-white px-4 py-1.5 text-sm font-bold z-10 rounded-br">รายการที่ {index + 1}</div>
-                  <button onClick={() => removeItem(item.id)} className="no-print absolute -top-3 -right-3 bg-red-500 text-white rounded-full p-2 hover:bg-red-600 shadow z-20 transition-transform hover:scale-110"><Trash2 size={16} /></button>
+                  
+                  {/* --- NEW: กลุ่มปุ่มจัดการหน้าต่าง (คัดลอก, เลื่อนขึ้น, เลื่อนลง, ลบ) --- */}
+                  <div className="no-print absolute -top-4 right-0 sm:-right-2 flex gap-1.5 z-30">
+                    {index > 0 && (
+                      <button onClick={() => moveItemUp(index)} className="bg-gray-700 text-white rounded-full p-2 hover:bg-gray-800 shadow-md transition-transform hover:scale-110" title="เลื่อนหน้าต่างขึ้น">
+                        <ChevronUp size={16} />
+                      </button>
+                    )}
+                    {index < items.length - 1 && (
+                      <button onClick={() => moveItemDown(index)} className="bg-gray-700 text-white rounded-full p-2 hover:bg-gray-800 shadow-md transition-transform hover:scale-110" title="เลื่อนหน้าต่างลง">
+                        <ChevronDown size={16} />
+                      </button>
+                    )}
+                    <button onClick={() => duplicateItem(index)} className="bg-blue-500 text-white rounded-full p-2 hover:bg-blue-600 shadow-md transition-transform hover:scale-110" title="ทำสำเนาหน้าต่างนี้">
+                      <Copy size={16} />
+                    </button>
+                    <button onClick={() => removeItem(item.id)} className="bg-red-500 text-white rounded-full p-2 hover:bg-red-600 shadow-md transition-transform hover:scale-110" title="ลบหน้าต่าง">
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
 
                   <div className="border border-gray-300 flex flex-col lg:flex-row print:flex-row h-auto lg:h-[750px] print:h-[185mm] mt-8 md:mt-0 bg-white relative overflow-hidden w-full box-border">
                     
@@ -2540,7 +2679,19 @@ const App = () => {
         </div>
       </div>
 
-      <div className="fixed bottom-8 right-8 flex flex-col gap-4 no-print z-[999999]">
+      <div className="fixed bottom-8 right-8 flex flex-col gap-4 no-print z-[999999] items-end">
+        {view === 'editor' && (
+           <div className="flex flex-col items-center bg-gray-800 rounded-full p-1.5 shadow-xl border-2 border-white mb-1 w-[56px]">
+             <button onClick={undo} disabled={historyIndexRef.current <= 0} className={`py-2.5 px-0 rounded-full transition-all flex items-center justify-center w-full ${historyIndexRef.current <= 0 ? 'text-gray-500 cursor-not-allowed' : 'text-white hover:bg-gray-700'}`} title="เลิกทำ (Undo)">
+                <Undo size={20} />
+             </button>
+             <div className="w-8 h-px bg-gray-600 my-0.5"></div>
+             <button onClick={redo} disabled={historyIndexRef.current >= historyRef.current.length - 1} className={`py-2.5 px-0 rounded-full transition-all flex items-center justify-center w-full ${historyIndexRef.current >= historyRef.current.length - 1 ? 'text-gray-500 cursor-not-allowed' : 'text-white hover:bg-gray-700'}`} title="ทำซ้ำ (Redo)">
+                <Redo size={20} />
+             </button>
+           </div>
+        )}
+
         <button onClick={saveData} disabled={saving} className={`group relative ${saving ? 'bg-gray-500' : 'bg-indigo-600 hover:bg-indigo-700'} text-white rounded-full p-4 shadow-xl flex items-center justify-center transition-transform hover:scale-110 border-2 border-white`} title="บันทึกงาน">
           <Save size={24} />
           <span className="absolute right-[110%] bg-indigo-800 text-white px-2 py-1 rounded text-xs whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity mr-2">บันทึกงาน</span>

@@ -1597,6 +1597,41 @@ const App = () => {
   const [dialog, setDialog] = useState(null);
   const [allAccounts, setAllAccounts] = useState(DEFAULT_ACCOUNTS);
   
+  // --- NEW: Logo Background Processing ---
+  const [logoSrc, setLogoSrc] = useState("https://lh3.googleusercontent.com/d/1xT2ysUSWkTcFxs1ztoGxZuQcnO_c66Tu");
+
+  useEffect(() => {
+    const processLogo = () => {
+      const img = new Image();
+      img.crossOrigin = "Anonymous"; // Request CORS from Google
+      img.onload = () => {
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = img.width;
+          canvas.height = img.height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0);
+          const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          const data = imgData.data;
+          
+          // เปลี่ยนสีที่มีค่าแสงสว่างมากๆ (ขาว/เทาอ่อน) ให้กลายเป็นโปร่งใส (Alpha = 0)
+          for (let i = 0; i < data.length; i += 4) {
+            if (data[i] > 210 && data[i+1] > 210 && data[i+2] > 210) {
+              data[i+3] = 0; 
+            }
+          }
+          ctx.putImageData(imgData, 0, 0);
+          setLogoSrc(canvas.toDataURL('image/png'));
+        } catch (e) {
+          console.warn("Logo CORS error, using CSS fallback.");
+        }
+      };
+      img.src = "https://lh3.googleusercontent.com/d/1xT2ysUSWkTcFxs1ztoGxZuQcnO_c66Tu";
+    };
+    processLogo();
+  }, []);
+  // ---------------------------------------
+
   // Dashboard Filters
   const [searchQuery, setSearchQuery] = useState('');
   const [filterEmployee, setFilterEmployee] = useState('');
@@ -2240,8 +2275,13 @@ const App = () => {
               <button onClick={()=>{saveData(); setView('dashboard');}} className="absolute -left-12 md:-left-20 top-1/2 transform -translate-y-1/2 no-print bg-gray-200 hover:bg-gray-300 text-gray-700 p-2 rounded-full shadow-md transition-colors z-10"><ArrowLeft size={24}/></button>
               
               <div className="w-1/3 text-left flex items-center gap-4">
-                {/* เปลี่ยนโครงสร้างลิงก์ Google Drive เพื่อให้แสดงผลบนเว็บได้ */}
-                <img src="https://lh3.googleusercontent.com/d/1xT2ysUSWkTcFxs1ztoGxZuQcnO_c66Tu" alt="Logo" className="h-10 md:h-14 lg:h-16 object-contain mix-blend-multiply" />
+                {/* ระบบลบสีพื้นหลังอัตโนมัติ */}
+                <img 
+                  src={logoSrc} 
+                  alt="Logo" 
+                  className="h-10 md:h-14 lg:h-16 object-contain" 
+                  style={logoSrc.startsWith('data:') ? {} : { mixBlendMode: 'multiply', filter: 'contrast(1.1) brightness(1.1)' }} 
+                />
                 <div className="no-print">
                   {appUser.role === 'admin' && <button onClick={()=>setShowDBSettings(true)} className="bg-gray-700 text-white px-3 py-2 rounded flex items-center hover:bg-gray-800 text-xs shadow font-bold transition-colors w-fit"><Settings size={16} className="mr-1.5"/> <span className="hidden md:inline">ฐานข้อมูล</span></button>}
                 </div>

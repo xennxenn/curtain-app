@@ -2236,12 +2236,18 @@ const App = () => {
         {/* --- Page 1: General Info --- */}
         <div className="print-center-page w-full">
           <div className="print-content-wrapper w-full">
-            <div className="text-center mb-6 border-b-2 border-gray-800 pb-3 flex justify-between items-center avoid-break relative">
-              <button onClick={()=>{saveData(); setView('dashboard');}} className="absolute -left-12 md:-left-20 top-1/2 transform -translate-y-1/2 no-print bg-gray-200 hover:bg-gray-300 text-gray-700 p-2 rounded-full shadow-md transition-colors"><ArrowLeft size={24}/></button>
-              <div className="w-1/3 text-left no-print flex flex-col md:flex-row gap-2">
-                {appUser.role === 'admin' && <button onClick={()=>setShowDBSettings(true)} className="bg-gray-700 text-white px-3 py-2 rounded flex items-center hover:bg-gray-800 text-xs shadow font-bold transition-colors w-fit"><Settings size={16} className="mr-1.5"/> ฐานข้อมูล</button>}
+            <div className="mb-6 border-b-2 border-gray-800 pb-3 flex justify-between items-center avoid-break relative">
+              <button onClick={()=>{saveData(); setView('dashboard');}} className="absolute -left-12 md:-left-20 top-1/2 transform -translate-y-1/2 no-print bg-gray-200 hover:bg-gray-300 text-gray-700 p-2 rounded-full shadow-md transition-colors z-10"><ArrowLeft size={24}/></button>
+              
+              <div className="w-1/3 text-left flex items-center gap-4">
+                {/* เปลี่ยนโครงสร้างลิงก์ Google Drive เพื่อให้แสดงผลบนเว็บได้ */}
+                <img src="https://lh3.googleusercontent.com/d/1xT2ysUSWkTcFxs1ztoGxZuQcnO_c66Tu" alt="Logo" className="h-10 md:h-14 lg:h-16 object-contain" />
+                <div className="no-print">
+                  {appUser.role === 'admin' && <button onClick={()=>setShowDBSettings(true)} className="bg-gray-700 text-white px-3 py-2 rounded flex items-center hover:bg-gray-800 text-xs shadow font-bold transition-colors w-fit"><Settings size={16} className="mr-1.5"/> <span className="hidden md:inline">ฐานข้อมูล</span></button>}
+                </div>
               </div>
-              <h1 className="text-xl md:text-2xl font-bold text-gray-800 w-1/3">ใบสรุปงานติดตั้งผ้าม่าน</h1>
+              
+              <h1 className="text-xl md:text-2xl font-bold text-gray-800 w-1/3 text-center">ใบสรุปงานติดตั้งผ้าม่าน</h1>
               <div className="w-1/3 text-right"></div>
             </div>
 

@@ -13,6 +13,7 @@ const firebaseConfig = {
   messagingSenderId: "58897117944",
   appId: "1:58897117944:web:3b7aa0417af8bc99a4010d"
 };
+
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
@@ -918,13 +919,15 @@ const UserManagementModal = ({ show, onClose, setDialog, allAccounts, setAllAcco
 };
 
 // --- Component: Login Form ---
-const LoginScreen = ({ onLogin }) => {
+const LoginScreen = ({ onLogin, isAuthReady }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!isAuthReady) return;
+    
     try {
       const snap = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'accounts'));
       let accounts = DEFAULT_ACCOUNTS;
@@ -937,6 +940,7 @@ const LoginScreen = ({ onLogin }) => {
       }
       else setError('Username หรือ Password ไม่ถูกต้อง');
     } catch(err) {
+      console.error("Login Fetch Error", err);
       const user = DEFAULT_ACCOUNTS.find(u => u.username === username && u.password === password);
       if (user) {
         localStorage.setItem('curtainAppUser', JSON.stringify(user));
@@ -962,7 +966,9 @@ const LoginScreen = ({ onLogin }) => {
             <input type="password" value={password} onChange={e=>setPassword(e.target.value)} className="w-full border p-2 rounded focus:outline-blue-500" required />
           </div>
           {error && <p className="text-red-500 text-sm text-center font-bold">{error}</p>}
-          <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 rounded mt-2 shadow">เข้าสู่ระบบ</button>
+          <button type="submit" disabled={!isAuthReady} className={`w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 rounded mt-2 shadow transition-colors ${!isAuthReady ? 'opacity-50 cursor-not-allowed' : ''}`}>
+            {!isAuthReady ? 'กำลังเชื่อมต่อเซิร์ฟเวอร์...' : 'เข้าสู่ระบบ'}
+          </button>
         </form>
       </div>
     </div>
@@ -988,6 +994,58 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
   const containerRef = useRef(null);
   const wrapperRef = useRef(null);
 
+  // --- NEW: เพิ่ม Ref และ State เพื่อเก็บสัดส่วนภาพที่แม่นยำ ---
+  const viewportRef = useRef(null);
+  const [imgNativeSize, setImgNativeSize] = useState(null);
+  const [containerStyle, setContainerStyle] = useState({ width: '100%', height: '100%' });
+
+  // 1. คำนวณขนาดของ Container ให้ตรงกับสัดส่วนจริงของรูปภาพ (ป้องกันจุดเพี้ยนเวลาเปลี่ยนโหมด)
+  useEffect(() => {
+    const updateSize = () => {
+      if (!viewportRef.current || !imgNativeSize) return;
+      const vw = viewportRef.current.clientWidth;
+      const vh = viewportRef.current.clientHeight;
+      const { w: natW, h: natH } = imgNativeSize;
+      
+      if (natW === 0 || natH === 0) return;
+
+      let scale;
+      if (item.imageFit === 'fit') {
+          scale = Math.min(vw / natW, vh / natH);
+      } else {
+          scale = Math.max(vw / natW, vh / natH);
+      }
+
+      setContainerStyle({
+          width: `${natW * scale}px`,
+          height: `${natH * scale}px`
+      });
+    };
+
+    updateSize();
+    const ro = new ResizeObserver(updateSize);
+    if (viewportRef.current) ro.observe(viewportRef.current);
+    return () => ro.disconnect();
+  }, [imgNativeSize, item.imageFit]);
+
+  // 2. ป้องกันการเลื่อน Scroll หน้าจอ ขณะซูมรูปภาพ
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+
+    const onWheel = (e) => {
+      if (!item.image) return;
+      if (mode === 'pan') {
+          e.preventDefault(); // บล็อกการเลื่อนหน้าเว็บขึ้น-ลง
+          const zoomFactor = -e.deltaY * 0.005;
+          setZoom(z => Math.max(0.2, Math.min(10, z + zoomFactor)));
+      }
+    };
+
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, [item.image, mode]);
+
   // Esc key to cancel drawing
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -1007,10 +1065,8 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
       const clientY = e.touches ? e.touches[0].clientY : e.clientY;
       if (pointDrag && containerRef.current) {
         const rect = containerRef.current.getBoundingClientRect();
-        const trueX = (clientX - rect.left - pan.x) / zoom;
-        const trueY = (clientY - rect.top - pan.y) / zoom;
-        const xPct = Math.max(0, Math.min(100, (trueX / rect.width) * 100));
-        const yPct = Math.max(0, Math.min(100, (trueY / rect.height) * 100));
+        const xPct = Math.max(0, Math.min(100, ((clientX - rect.left) / rect.width) * 100));
+        const yPct = Math.max(0, Math.min(100, ((clientY - rect.top) / rect.height) * 100));
 
         handleItemChange(item.id, 'areas', item.areas.map(a => {
           if (a.id === pointDrag.areaId) {
@@ -1036,7 +1092,7 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
       window.removeEventListener('mouseup', handleGlobalPointUp);
       window.removeEventListener('touchmove', handleGlobalPointUp);
     }
-  }, [pointDrag, pan, zoom, item.areas, item.id]);
+  }, [pointDrag, zoom, item.areas, item.id]);
 
   useEffect(() => {
     const handleGlobalPanelMove = (e) => {
@@ -1105,13 +1161,6 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
     handleItemChange(item.id, 'areas', item.areas.map(a => a.id === areaId ? { ...a, [field]: value } : a));
   };
 
-  const handleWheel = (e) => {
-    if(!item.image || mode !== 'pan') return;
-    e.preventDefault();
-    const zoomFactor = -e.deltaY * 0.005;
-    setZoom(z => Math.max(0.5, Math.min(5, z + zoomFactor)));
-  };
-
   const handleMouseDown = (e) => { 
     const clientX = e.touches ? e.touches[0].clientX : e.clientX;
     const clientY = e.touches ? e.touches[0].clientY : e.clientY;
@@ -1131,10 +1180,8 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
     }
     if (containerRef.current) {
       const rect = containerRef.current.getBoundingClientRect();
-      const trueX = (clientX - rect.left - pan.x) / zoom;
-      const trueY = (clientY - rect.top - pan.y) / zoom;
-      const xPct = Math.max(0, Math.min(100, (trueX / rect.width) * 100));
-      const yPct = Math.max(0, Math.min(100, (trueY / rect.height) * 100));
+      const xPct = Math.max(0, Math.min(100, ((clientX - rect.left) / rect.width) * 100));
+      const yPct = Math.max(0, Math.min(100, ((clientY - rect.top) / rect.height) * 100));
       if (mode === 'draw' && activeAreaId && isDrawing && !pointDrag && !isPanning) setCursorPos({ x: xPct, y: yPct });
       else setCursorPos(null);
     }
@@ -1152,10 +1199,8 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
     if(!clientX && !clientY) return;
 
     const rect = containerRef.current.getBoundingClientRect();
-    const trueX = (clientX - rect.left - pan.x) / zoom;
-    const trueY = (clientY - rect.top - pan.y) / zoom;
-    const xPct = Math.max(0, Math.min(100, (trueX / rect.width) * 100));
-    const yPct = Math.max(0, Math.min(100, (trueY / rect.height) * 100));
+    const xPct = Math.max(0, Math.min(100, ((clientX - rect.left) / rect.width) * 100));
+    const yPct = Math.max(0, Math.min(100, ((clientY - rect.top) / rect.height) * 100));
 
     const area = item.areas.find(a => a.id === activeAreaId);
     if (area && area.points.length > 0) {
@@ -1203,9 +1248,9 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
   return (
     <div ref={wrapperRef} className="flex flex-col w-full h-full relative border-b md:border-b-0 print:border-b-0 border-gray-300 bg-white">
       <div 
-        className={`relative w-full flex-grow overflow-hidden bg-gray-100 ${mode === 'pan' ? (isPanning ? 'cursor-grabbing' : 'cursor-grab') : (activeAreaId && isDrawing ? 'cursor-crosshair' : 'cursor-default')}`}
+        ref={viewportRef}
+        className={`relative w-full flex-grow overflow-hidden ${item.imageFit === 'fit' ? 'bg-white' : 'bg-gray-100'} ${mode === 'pan' ? (isPanning ? 'cursor-grabbing' : 'cursor-grab') : (activeAreaId && isDrawing ? 'cursor-crosshair' : 'cursor-default')}`}
         style={{ touchAction: 'none' }}
-        onWheel={handleWheel} 
         onMouseDown={handleMouseDown} onTouchStart={handleMouseDown}
         onMouseMove={handleMouseMove} onTouchMove={handleMouseMove}
         onMouseUp={handleMouseUp} onTouchEnd={handleMouseUp}
@@ -1213,13 +1258,29 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
       >
         {item.image ? (
           <>
-            <div style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: '0 0' }} className={`w-full h-full absolute top-0 left-0 flex items-center justify-center transition-transform duration-75 ease-out ${(item.imageFit || 'fill') === 'fit' ? 'bg-white' : ''}`}>
-              <div ref={containerRef} className="relative max-w-full max-h-full" style={item.imageFit === 'fit' ? { display: 'inline-flex' } : { width: '100%', height: '100%', display: 'flex' }}>
-                <img src={item.image} alt="Window view" className="pointer-events-none block" style={item.imageFit === 'fit' ? { maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' } : { width: '100%', height: '100%', objectFit: 'cover' }} />
-                
-                <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none" style={{ top: 0, left: 0 }}>
-                  <defs>
-                    {item.areas.map(area => {
+            <div 
+                ref={containerRef}
+                style={{
+                    width: containerStyle.width,
+                    height: containerStyle.height,
+                    transform: `translate(calc(-50% + ${pan.x}px), calc(-50% + ${pan.y}px)) scale(${zoom})`,
+                    transformOrigin: 'center',
+                    position: 'absolute',
+                    top: '50%',
+                    left: '50%',
+                }}
+                className="transition-transform duration-75 ease-out shadow-sm"
+            >
+              <img 
+                  src={item.image} 
+                  alt="Window view" 
+                  className="absolute inset-0 w-full h-full pointer-events-none block object-fill" 
+                  onLoad={e => setImgNativeSize({ w: e.target.naturalWidth, h: e.target.naturalHeight })} 
+              />
+              
+              <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none" style={{ top: 0, left: 0 }}>
+                <defs>
+                  {item.areas.map(area => {
                       const clipId = `clip-${idPrefix}-${item.id}-${area.id}`;
                       return (
                         <clipPath key={clipId} id={clipId}>
@@ -1346,108 +1407,108 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
                   {mode === 'draw' && activeAreaId && isDrawing && !pointDrag && cursorPos && activeArea && activeArea.points.length > 0 && (
                     <polygon points={[...activeArea.points, cursorPos].map(p => `${p.x},${p.y}`).join(' ')} fill={activeArea.lineColor} fillOpacity={0.1} stroke="none" />
                   )}
-                </svg>
+              </svg>
 
-                <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ top: 0, left: 0 }}>
-                  {item.areas.map(area => {
-                    const isActive = activeAreaId === area.id;
-                    return (
-                      <g key={area.id}>
-                        {area.points.map((p, idx) => {
-                          const isLast = idx === area.points.length - 1;
-                          const nextP = isLast ? area.points[0] : area.points[idx + 1];
-                          if (mode === 'draw' && isActive && isDrawing && isLast && !pointDrag) return null;
-                          if (area.points.length < 2) return null;
-                          return (
-                            <line key={`line-${idx}`} x1={`${p.x}%`} y1={`${p.y}%`} x2={`${nextP.x}%`} y2={`${nextP.y}%`} stroke={area.lineColor} strokeWidth={area.lineWidth / zoom} strokeDasharray={isActive && !pointDrag && isDrawing ? "4 4" : "0"} className={isActive && !pointDrag && isDrawing ? "animate-pulse" : ""} style={{ pointerEvents: 'none' }} />
-                          );
-                        })}
-                        {area.points.map((p, idx) => {
-                          const isFirstPoint = idx === 0;
-                          const isCurrentlyDrawing = mode === 'draw' && isActive && isDrawing;
-                          const isHighlight = isCurrentlyDrawing && isFirstPoint && area.points.length >= 2;
-                          const circleRadius = isHighlight ? 8/zoom : 4/zoom;
-                          
-                          return (
-                            <g key={idx} className="cursor-move" style={{ pointerEvents: 'auto' }}>
-                              <circle cx={`${p.x}%`} cy={`${p.y}%`} r={circleRadius} fill={isHighlight ? "#FFD700" : "white"} stroke={area.lineColor} strokeWidth={isHighlight ? 3/zoom : 2/zoom} onMouseDown={(e) => handlePointMouseDown(e, area.id, idx)} onTouchStart={(e) => handlePointMouseDown(e, area.id, idx)} className={isHighlight ? "animate-pulse" : ""} />
-                            </g>
-                          );
-                        })}
-                      </g>
-                    );
-                  })}
-                  {mode === 'draw' && activeAreaId && isDrawing && !pointDrag && cursorPos && activeArea && activeArea.points.length > 0 && (
-                    <g style={{ pointerEvents: 'none' }}>
-                      <line x1={`${activeArea.points[activeArea.points.length - 1].x}%`} y1={`${activeArea.points[activeArea.points.length - 1].y}%`} x2={`${cursorPos.x}%`} y2={`${cursorPos.y}%`} stroke={activeArea.lineColor} strokeWidth={2/zoom} strokeDasharray="4 4" />
-                      <line x1={`${cursorPos.x}%`} y1={`${cursorPos.y}%`} x2={`${activeArea.points[0].x}%`} y2={`${activeArea.points[0].y}%`} stroke={activeArea.lineColor} strokeWidth={2/zoom} strokeDasharray="4 4" opacity="0.5" />
-                    </g>
-                  )}
-                </svg>
-
-                {item.areas.map((area, idx) => {
-                  if(area.points.length === 0) return null;
-                  
-                  let wMidX = 50, wMidY = 0, wAng = 0;
-                  let hMidX = 0, hMidY = 50, hAng = -90;
-
-                  if (area.points.length >= 2) {
-                    let edges = [];
-                    for(let i=0; i<area.points.length; i++) {
-                      let p1 = area.points[i];
-                      let p2 = area.points[(i+1)%area.points.length];
-                      edges.push({ p1, p2, midX: (p1.x+p2.x)/2, midY: (p1.y+p2.y)/2, dx: p2.x - p1.x, dy: p2.y - p1.y });
-                    }
-                    
-                    let tEdge = edges.reduce((prev, curr) => prev.midY < curr.midY ? prev : curr);
-                    let bEdge = edges.reduce((prev, curr) => prev.midY > curr.midY ? prev : curr);
-                    let lEdge = edges.reduce((prev, curr) => prev.midX < curr.midX ? prev : curr);
-                    let rEdge = edges.reduce((prev, curr) => prev.midX > curr.midX ? prev : curr);
-
-                    const getVisualAngle = (edge, defaultAng) => {
-                      if (!containerRef.current) return defaultAng;
-                      const rect = containerRef.current.getBoundingClientRect();
-                      const pxDx = edge.dx * (rect.width / 100);
-                      const pxDy = edge.dy * (rect.height / 100);
-                      if (pxDx === 0 && pxDy === 0) return defaultAng;
-                      let ang = Math.atan2(pxDy, pxDx) * (180 / Math.PI);
-                      if (ang > 90 || ang < -90) ang += 180;
-                      return ang;
-                    };
-
-                    const wPos = area.wPos || 'top';
-                    const hPos = area.hPos || 'right';
-
-                    if (wPos === 'top') { wMidX = tEdge.midX; wMidY = tEdge.midY; wAng = getVisualAngle(tEdge, 0); }
-                    else { wMidX = bEdge.midX; wMidY = bEdge.midY; wAng = getVisualAngle(bEdge, 0); }
-
-                    if (hPos === 'left') { hMidX = lEdge.midX; hMidY = lEdge.midY; hAng = getVisualAngle(lEdge, -90); }
-                    else { hMidX = rEdge.midX; hMidY = rEdge.midY; hAng = getVisualAngle(rEdge, 90); }
-                  }
-
-                  const lblSize = (area.labelSize || 14) / zoom;
-                  
+              <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ top: 0, left: 0 }}>
+                {item.areas.map(area => {
+                  const isActive = activeAreaId === area.id;
                   return (
-                    <div key={`labels-${area.id}`} className="absolute inset-0 pointer-events-none">
-                      {item.areas.length >= 2 && area.points[0] && (
-                        <div style={{ position: 'absolute', left: `${area.points[0].x}%`, top: `${area.points[0].y}%`, transform: `translate(-50%, -100%) translateY(-10px)`, color: area.lineColor, fontSize: `${12/zoom}px`, whiteSpace: 'nowrap' }} className="bg-white/90 px-1.5 py-0.5 rounded shadow-sm border border-gray-300 font-bold z-10 text-center">
-                          บานที่ {idx + 1}
-                        </div>
-                      )}
-                      {area.width && (
-                        <div style={{ position: 'absolute', left: `${wMidX}%`, top: `${wMidY}%`, transform: `translate(-50%, -50%) rotate(${wAng}deg)`, color: area.labelColor || area.lineColor, fontSize: `${lblSize}px`, whiteSpace: 'nowrap' }} className="bg-white/95 px-2 py-0.5 rounded shadow-md border border-gray-300 font-bold z-10 text-center">
-                          {area.width} ซม.
-                        </div>
-                      )}
-                      {area.height && (
-                        <div style={{ position: 'absolute', left: `${hMidX}%`, top: `${hMidY}%`, transform: `translate(-50%, -50%) rotate(${hAng}deg)`, color: area.labelColor || area.lineColor, fontSize: `${lblSize}px`, whiteSpace: 'nowrap' }} className="bg-white/95 px-2 py-0.5 rounded shadow-md border border-gray-300 font-bold z-10 text-center">
-                          {area.height} ซม.
-                        </div>
-                      )}
-                    </div>
+                    <g key={area.id}>
+                      {area.points.map((p, idx) => {
+                        const isLast = idx === area.points.length - 1;
+                        const nextP = isLast ? area.points[0] : area.points[idx + 1];
+                        if (mode === 'draw' && isActive && isDrawing && isLast && !pointDrag) return null;
+                        if (area.points.length < 2) return null;
+                        return (
+                          <line key={`line-${idx}`} x1={`${p.x}%`} y1={`${p.y}%`} x2={`${nextP.x}%`} y2={`${nextP.y}%`} stroke={area.lineColor} strokeWidth={area.lineWidth / zoom} strokeDasharray={isActive && !pointDrag && isDrawing ? "4 4" : "0"} className={isActive && !pointDrag && isDrawing ? "animate-pulse" : ""} style={{ pointerEvents: 'none' }} />
+                        );
+                      })}
+                      {area.points.map((p, idx) => {
+                        const isFirstPoint = idx === 0;
+                        const isCurrentlyDrawing = mode === 'draw' && isActive && isDrawing;
+                        const isHighlight = isCurrentlyDrawing && isFirstPoint && area.points.length >= 2;
+                        const circleRadius = isHighlight ? 8/zoom : 4/zoom;
+                        
+                        return (
+                          <g key={idx} className="cursor-move" style={{ pointerEvents: 'auto' }}>
+                            <circle cx={`${p.x}%`} cy={`${p.y}%`} r={circleRadius} fill={isHighlight ? "#FFD700" : "white"} stroke={area.lineColor} strokeWidth={isHighlight ? 3/zoom : 2/zoom} onMouseDown={(e) => handlePointMouseDown(e, area.id, idx)} onTouchStart={(e) => handlePointMouseDown(e, area.id, idx)} className={isHighlight ? "animate-pulse" : ""} />
+                          </g>
+                        );
+                      })}
+                    </g>
                   );
                 })}
-              </div>
+                {mode === 'draw' && activeAreaId && isDrawing && !pointDrag && cursorPos && activeArea && activeArea.points.length > 0 && (
+                  <g style={{ pointerEvents: 'none' }}>
+                    <line x1={`${activeArea.points[activeArea.points.length - 1].x}%`} y1={`${activeArea.points[activeArea.points.length - 1].y}%`} x2={`${cursorPos.x}%`} y2={`${cursorPos.y}%`} stroke={activeArea.lineColor} strokeWidth={2/zoom} strokeDasharray="4 4" />
+                    <line x1={`${cursorPos.x}%`} y1={`${cursorPos.y}%`} x2={`${activeArea.points[0].x}%`} y2={`${activeArea.points[0].y}%`} stroke={activeArea.lineColor} strokeWidth={2/zoom} strokeDasharray="4 4" opacity="0.5" />
+                  </g>
+                )}
+              </svg>
+
+              {item.areas.map((area, idx) => {
+                if(area.points.length === 0) return null;
+                
+                let wMidX = 50, wMidY = 0, wAng = 0;
+                let hMidX = 0, hMidY = 50, hAng = -90;
+
+                if (area.points.length >= 2) {
+                  let edges = [];
+                  for(let i=0; i<area.points.length; i++) {
+                    let p1 = area.points[i];
+                    let p2 = area.points[(i+1)%area.points.length];
+                    edges.push({ p1, p2, midX: (p1.x+p2.x)/2, midY: (p1.y+p2.y)/2, dx: p2.x - p1.x, dy: p2.y - p1.y });
+                  }
+                  
+                  let tEdge = edges.reduce((prev, curr) => prev.midY < curr.midY ? prev : curr);
+                  let bEdge = edges.reduce((prev, curr) => prev.midY > curr.midY ? prev : curr);
+                  let lEdge = edges.reduce((prev, curr) => prev.midX < curr.midX ? prev : curr);
+                  let rEdge = edges.reduce((prev, curr) => prev.midX > curr.midX ? prev : curr);
+
+                  const getVisualAngle = (edge, defaultAng) => {
+                    if (!containerRef.current) return defaultAng;
+                    // ปรับการดึงองศาให้สอดคล้องกับ container ใหม่
+                    const rect = containerRef.current.getBoundingClientRect();
+                    const pxDx = edge.dx * (rect.width / 100);
+                    const pxDy = edge.dy * (rect.height / 100);
+                    if (pxDx === 0 && pxDy === 0) return defaultAng;
+                    let ang = Math.atan2(pxDy, pxDx) * (180 / Math.PI);
+                    if (ang > 90 || ang < -90) ang += 180;
+                    return ang;
+                  };
+
+                  const wPos = area.wPos || 'top';
+                  const hPos = area.hPos || 'right';
+
+                  if (wPos === 'top') { wMidX = tEdge.midX; wMidY = tEdge.midY; wAng = getVisualAngle(tEdge, 0); }
+                  else { wMidX = bEdge.midX; wMidY = bEdge.midY; wAng = getVisualAngle(bEdge, 0); }
+
+                  if (hPos === 'left') { hMidX = lEdge.midX; hMidY = lEdge.midY; hAng = getVisualAngle(lEdge, -90); }
+                  else { hMidX = rEdge.midX; hMidY = rEdge.midY; hAng = getVisualAngle(rEdge, 90); }
+                }
+
+                const lblSize = (area.labelSize || 14) / zoom;
+                
+                return (
+                  <div key={`labels-${area.id}`} className="absolute inset-0 pointer-events-none">
+                    {item.areas.length >= 2 && area.points[0] && (
+                      <div style={{ position: 'absolute', left: `${area.points[0].x}%`, top: `${area.points[0].y}%`, transform: `translate(-50%, -100%) translateY(-10px)`, color: area.lineColor, fontSize: `${12/zoom}px`, whiteSpace: 'nowrap' }} className="bg-white/90 px-1.5 py-0.5 rounded shadow-sm border border-gray-300 font-bold z-10 text-center">
+                        บานที่ {idx + 1}
+                      </div>
+                    )}
+                    {area.width && (
+                      <div style={{ position: 'absolute', left: `${wMidX}%`, top: `${wMidY}%`, transform: `translate(-50%, -50%) rotate(${wAng}deg)`, color: area.labelColor || area.lineColor, fontSize: `${lblSize}px`, whiteSpace: 'nowrap' }} className="bg-white/95 px-2 py-0.5 rounded shadow-md border border-gray-300 font-bold z-10 text-center">
+                        {area.width} ซม.
+                      </div>
+                    )}
+                    {area.height && (
+                      <div style={{ position: 'absolute', left: `${hMidX}%`, top: `${hMidY}%`, transform: `translate(-50%, -50%) rotate(${hAng}deg)`, color: area.labelColor || area.lineColor, fontSize: `${lblSize}px`, whiteSpace: 'nowrap' }} className="bg-white/95 px-2 py-0.5 rounded shadow-md border border-gray-300 font-bold z-10 text-center">
+                        {area.height} ซม.
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
 
             <div className="absolute top-2 left-2 flex flex-wrap gap-2 z-40 no-print" onMouseDown={e=>e.stopPropagation()} onTouchStart={e=>e.stopPropagation()} onClick={e=>e.stopPropagation()} onWheel={e=>e.stopPropagation()}>
@@ -1455,7 +1516,11 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
                 <Upload size={14} className="mr-1.5"/> {isUploadingObj ? 'กำลังอัปโหลด...' : 'เปลี่ยนรูปหน้างาน'}
                 <input type="file" accept={ACCEPTED_IMAGE_FORMATS} className="hidden" disabled={isUploadingObj} onChange={handleImageUpload} />
               </label>
-              <button onClick={() => handleItemChange(item.id, 'imageFit', (item.imageFit || 'fill') === 'fill' ? 'fit' : 'fill')} className="cursor-pointer bg-white/90 border border-gray-300 text-gray-700 px-3 py-1.5 rounded shadow-sm hover:bg-white flex items-center text-xs font-bold transition-colors" title="เปลี่ยนรูปแบบการจัดวางรูปภาพ">
+              <button onClick={() => {
+                handleItemChange(item.id, 'imageFit', (item.imageFit || 'fill') === 'fill' ? 'fit' : 'fill');
+                setZoom(1); // รีเซ็ตการซูมและตำแหน่งอัตโนมัติ
+                setPan({ x: 0, y: 0 });
+              }} className="cursor-pointer bg-white/90 border border-gray-300 text-gray-700 px-3 py-1.5 rounded shadow-sm hover:bg-white flex items-center text-xs font-bold transition-colors" title="รีเซ็ตมุมมอง และเปลี่ยนรูปแบบการจัดวางรูปภาพ">
                 {(item.imageFit || 'fill') === 'fill' ? 'โหมด: เต็มกรอบ (Fill)' : 'โหมด: พอดีภาพ (Fit)'}
               </button>
             </div>
@@ -1664,12 +1729,18 @@ const App = () => {
     const initAuth = async () => {
       try {
         if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          try { await signInWithCustomToken(auth, __initial_auth_token); } 
-          catch (tokenError) { await signInAnonymously(auth); }
+          try {
+            await signInWithCustomToken(auth, __initial_auth_token);
+          } catch (tokenError) {
+            console.warn("Token auth failed, falling back to anonymous:", tokenError);
+            await signInAnonymously(auth);
+          }
         } else {
           await signInAnonymously(auth);
         }
-      } catch (err) { console.error("Auth Error:", err); }
+      } catch (err) {
+        console.error("Auth Error:", err);
+      }
     };
     initAuth();
     const unsubscribe = onAuthStateChanged(auth, setFirebaseUser);
@@ -1857,7 +1928,7 @@ const App = () => {
     setAppUser(null);
   };
 
-  if (!appUser) return <LoginScreen onLogin={(user) => setAppUser(user)} />;
+  if (!appUser) return <LoginScreen onLogin={(user) => setAppUser(user)} isAuthReady={!!firebaseUser} />;
 
   const handleCreateNew = () => {
     setCurrentProjectId(Date.now().toString());

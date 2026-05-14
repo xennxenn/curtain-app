@@ -5,7 +5,7 @@ import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged }
 import { getFirestore, doc, setDoc, getDoc, collection, getDocs, deleteDoc, onSnapshot } from 'firebase/firestore';
 
 // --- Firebase Initialization (Online Sync) ---
-const firebaseConfig = {
+const defaultFirebaseConfig = {
   apiKey: "AIzaSyCRM9SXoU2IWM0olulbyfAF2oeeGyJsygY",
   authDomain: "curtain-app-3d38a.firebaseapp.com",
   projectId: "curtain-app-3d38a",
@@ -14,7 +14,8 @@ const firebaseConfig = {
   appId: "1:58897117944:web:3b7aa0417af8bc99a4010d"
 };
 
-const app = initializeApp(firebaseConfig);
+// บังคับใช้ Config และ AppID เดิมเสมอ เพื่อป้องกันข้อมูลหายเมื่อ Environment เปลี่ยนแปลง
+const app = initializeApp(defaultFirebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const appId = "curtain-app-3d38a";
@@ -68,17 +69,14 @@ const AutoFitText = ({ text, className }) => {
       const cw = containerRef.current.clientWidth;
       const tw = textRef.current.scrollWidth;
       
-      // ถ้าข้อความกว้างกว่ากล่อง ให้คำนวณสเกลย่อส่วนลงมา
       if (tw > cw && cw > 0) {
-        setScale((cw - 4) / tw); // เผื่อขอบซ้ายขวาเล็กน้อย (4px)
+        setScale((cw - 4) / tw);
       } else {
-        setScale(1); // ถ้าไม่เกินก็ไม่ต้องย่อ (แสดงขนาดปกติที่ 13px)
+        setScale(1); 
       }
     };
 
     resizeText();
-    
-    // รันซ้ำเผื่อ font โหลดช้า หรือ layout หน้าจอเพิ่งขยับเสร็จ
     const timeoutId = setTimeout(resizeText, 150);
 
     let observer;
@@ -128,10 +126,8 @@ const AlertDialog = ({ dialog, onClose }) => {
   );
 };
 
-// --- Utility: Delay Function for Rate Limiting ---
 const delay = (ms) => new Promise((res) => setTimeout(res, ms));
 
-// --- Utility: NEW Cloudinary Upload Function ---
 const uploadImageToCloudinary = async (base64Str) => {
   try {
     const formData = new FormData();
@@ -155,7 +151,6 @@ const uploadImageToCloudinary = async (base64Str) => {
   }
 };
 
-// --- Utility: Background Removal for Signatures ---
 const removeWhiteBackground = (dataUrl) => {
   return new Promise((resolve) => {
     const img = new Image();
@@ -180,7 +175,6 @@ const removeWhiteBackground = (dataUrl) => {
   });
 };
 
-// --- Utility: HEIC/HEIF Image Support & Compression ---
 const loadHeic2Any = async () => {
   if (window.heic2any) return window.heic2any;
   return new Promise((resolve, reject) => {
@@ -308,7 +302,6 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
   const [localText, setLocalText] = useState({});
   const [isUploading, setIsUploading] = useState(false);
   const [isUploadingBulk, setIsUploadingBulk] = useState(false);
-  const [bulkProgress, setBulkProgress] = useState('');
   const [searchFabric, setSearchFabric] = useState('');
 
   useEffect(() => {
@@ -346,7 +339,6 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
           if(cleanedDB.margins[k]) cleanedDB.margins[k] = cleanedDB.margins[k].map(s=>s.trim()).filter(Boolean);
        });
     }
-    // ส่งข้อมูลบันทึกขึ้น Firebase เสมอ 
     const success = await saveAppDB(cleanedDB); 
     if (success) {
       setAppDB(cleanedDB);
@@ -354,7 +346,6 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
     }
   };
 
-  // --- RECOVERY FUNCTION ---
   const handleRecoverLocal = async () => {
     const localBackup = localStorage.getItem('backupAppDB');
     if (localBackup) {
@@ -375,7 +366,6 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
     }
   };
 
-  // --- EXPORT/IMPORT DB FUNCTIONS ---
   const handleExportDB = () => {
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(appDB));
     const downloadAnchorNode = document.createElement('a');
@@ -796,7 +786,6 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
   );
 };
 
-// --- Component: User Management Modal ---
 const UserManagementModal = ({ show, onClose, setDialog, allAccounts, setAllAccounts }) => {
   const [newN, setNewN] = useState('');
   const [newU, setNewU] = useState('');
@@ -834,14 +823,12 @@ const UserManagementModal = ({ show, onClose, setDialog, allAccounts, setAllAcco
               const url = await uploadImageToCloudinary(transparent);
               if(url) {
                  if(accountId) {
-                     // อัปเดตลายเซ็นให้พนักงานที่มีอยู่แล้ว
                      const updatedAccounts = allAccounts.map(acc => 
                          acc.id === accountId ? { ...acc, signatureUrl: url } : acc
                      );
                      saveAcc(updatedAccounts);
                      setDialog({ type: 'alert', message: 'อัปเดตลายเซ็นสำเร็จ' });
                  } else {
-                     // สำหรับฟอร์มเพิ่มพนักงานใหม่
                      setNewSig(url);
                  }
               }
@@ -918,7 +905,6 @@ const UserManagementModal = ({ show, onClose, setDialog, allAccounts, setAllAcco
   );
 };
 
-// --- Component: Login Form ---
 const LoginScreen = ({ onLogin, isAuthReady }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -927,7 +913,6 @@ const LoginScreen = ({ onLogin, isAuthReady }) => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!isAuthReady) return;
-    
     try {
       const snap = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'accounts'));
       let accounts = DEFAULT_ACCOUNTS;
@@ -975,7 +960,6 @@ const LoginScreen = ({ onLogin, isAuthReady }) => {
   );
 };
 
-// --- Component: Interactive Image Area ---
 const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 'editor' }) => {
   const [activeAreaId, setActiveAreaId] = useState(null);
   const [isDrawing, setIsDrawing] = useState(false);
@@ -993,13 +977,10 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
 
   const containerRef = useRef(null);
   const wrapperRef = useRef(null);
-
-  // --- NEW: เพิ่ม Ref และ State เพื่อเก็บสัดส่วนภาพที่แม่นยำ ---
   const viewportRef = useRef(null);
   const [imgNativeSize, setImgNativeSize] = useState(null);
   const [containerStyle, setContainerStyle] = useState({ width: '100%', height: '100%' });
 
-  // 1. คำนวณขนาดของ Container ให้ตรงกับสัดส่วนจริงของรูปภาพ (ป้องกันจุดเพี้ยนเวลาเปลี่ยนโหมด)
   useEffect(() => {
     const updateSize = () => {
       if (!viewportRef.current || !imgNativeSize) return;
@@ -1028,7 +1009,6 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
     return () => ro.disconnect();
   }, [imgNativeSize, item.imageFit]);
 
-  // 2. ป้องกันการเลื่อน Scroll หน้าจอ ขณะซูมรูปภาพ
   useEffect(() => {
     const el = viewportRef.current;
     if (!el) return;
@@ -1036,7 +1016,7 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
     const onWheel = (e) => {
       if (!item.image) return;
       if (mode === 'pan') {
-          e.preventDefault(); // บล็อกการเลื่อนหน้าเว็บขึ้น-ลง
+          e.preventDefault(); 
           const zoomFactor = -e.deltaY * 0.005;
           setZoom(z => Math.max(0.2, Math.min(10, z + zoomFactor)));
       }
@@ -1046,7 +1026,6 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
     return () => el.removeEventListener('wheel', onWheel);
   }, [item.image, mode]);
 
-  // Esc key to cancel drawing
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.key === 'Escape' && isDrawing && activeAreaId) {
@@ -1193,7 +1172,6 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
   const handleContentClick = (e) => {
     if (mode !== 'draw' || !activeAreaId || !isDrawing || pointDrag || isPanning || draggingPanel) return;
     
-    // Fallbacks for touch vs mouse event coordinates on click
     const clientX = e.clientX || (e.touches && e.touches[0] ? e.touches[0].clientX : 0);
     const clientY = e.clientY || (e.touches && e.touches[0] ? e.touches[0].clientY : 0);
     if(!clientX && !clientY) return;
@@ -1467,7 +1445,6 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
 
                   const getVisualAngle = (edge, defaultAng) => {
                     if (!containerRef.current) return defaultAng;
-                    // ปรับการดึงองศาให้สอดคล้องกับ container ใหม่
                     const rect = containerRef.current.getBoundingClientRect();
                     const pxDx = edge.dx * (rect.width / 100);
                     const pxDy = edge.dy * (rect.height / 100);
@@ -1518,9 +1495,9 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
               </label>
               <button onClick={() => {
                 handleItemChange(item.id, 'imageFit', (item.imageFit || 'fill') === 'fill' ? 'fit' : 'fill');
-                setZoom(1); // รีเซ็ตการซูมและตำแหน่งอัตโนมัติ
+                setZoom(1);
                 setPan({ x: 0, y: 0 });
-              }} className="cursor-pointer bg-white/90 border border-gray-300 text-gray-700 px-3 py-1.5 rounded shadow-sm hover:bg-white flex items-center text-xs font-bold transition-colors" title="รีเซ็ตมุมมอง และเปลี่ยนรูปแบบการจัดวางรูปภาพ">
+              }} className="cursor-pointer bg-white/90 border border-gray-300 text-gray-700 px-3 py-1.5 rounded shadow-sm hover:bg-white flex items-center text-xs font-bold transition-colors" title="รีเซ็ตและเปลี่ยนรูปแบบการจัดวางรูปภาพ">
                 {(item.imageFit || 'fill') === 'fill' ? 'โหมด: เต็มกรอบ (Fill)' : 'โหมด: พอดีภาพ (Fit)'}
               </button>
             </div>
@@ -1652,7 +1629,7 @@ const App = () => {
   const [view, setView] = useState('dashboard'); 
   const [projectsList, setProjectsList] = useState([]);
   const [currentProjectId, setCurrentProjectId] = useState(null);
-  const [projectOwner, setProjectOwner] = useState(''); // NEW: Tracker for actual project owner
+  const [projectOwner, setProjectOwner] = useState(''); 
   const [saving, setSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState('');
   const [appDB, setAppDB] = useState(DEFAULT_DB);
@@ -1662,13 +1639,13 @@ const App = () => {
   const [dialog, setDialog] = useState(null);
   const [allAccounts, setAllAccounts] = useState(DEFAULT_ACCOUNTS);
   
-  // --- NEW: Logo Background Processing ---
+  // --- Logo Background Processing ---
   const [logoSrc, setLogoSrc] = useState("https://lh3.googleusercontent.com/d/1xT2ysUSWkTcFxs1ztoGxZuQcnO_c66Tu");
 
   useEffect(() => {
     const processLogo = () => {
       const img = new Image();
-      img.crossOrigin = "Anonymous"; // Request CORS from Google
+      img.crossOrigin = "Anonymous";
       img.onload = () => {
         try {
           const canvas = document.createElement('canvas');
@@ -1679,7 +1656,6 @@ const App = () => {
           const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
           const data = imgData.data;
           
-          // เปลี่ยนสีที่มีค่าแสงสว่างมากๆ (ขาว/เทาอ่อน) ให้กลายเป็นโปร่งใส (Alpha = 0)
           for (let i = 0; i < data.length; i += 4) {
             if (data[i] > 210 && data[i+1] > 210 && data[i+2] > 210) {
               data[i+3] = 0; 
@@ -1695,29 +1671,28 @@ const App = () => {
     };
     processLogo();
   }, []);
-  // ---------------------------------------
 
-  // Dashboard Filters
   const [searchQuery, setSearchQuery] = useState('');
   const [filterEmployee, setFilterEmployee] = useState('');
 
-  // Background Upload State
   const [bgUploadQueue, setBgUploadQueue] = useState([]);
   const [bgUploadProgress, setBgUploadProgress] = useState({ current: 0, total: 0, active: false });
   const processingRef = useRef(false);
   const appDBRef = useRef(appDB);
 
-  // Undo / Redo System
   const historyRef = useRef([]);
   const historyIndexRef = useRef(-1);
   const isUndoRedoAction = useRef(false);
   const [, setForceUpdate] = useState(false);
 
+  // --- อัปเดตข้อความหมายเหตุ (D) ---
+  const defaultTerms = `กรณีมีการเปลี่ยนแปลงรายละเอียดจากที่ตกลงไว้ในใบสรุปงานติดตั้งผ้าม่านนี้ ผู้สั่งซื้อยินยอมที่จะชำระเงินเพิ่มในส่วนของ\n(A) ค่าแก้ไขผ้าม่านและอุปกรณ์ เช่น ความสูง ความกว้างของผ้าม่าน รางม่าน ที่เกิดจากหน้างานเปลี่ยนแปลง บิ้วท์อินเพิ่มเติม ฯลฯ\n(B) ค่าติดตั้งรางละ 200 บาท\n(C) ค่าเดินทาง 1,500 บาท ใน กทม. (ต่างจังหวัดคิดตามระยะทาง)\n(D) สีสินค้าจริงอาจแตกต่างจากภาพแสดงผลเล็กน้อย เนื่องจากข้อจำกัดด้านการถ่ายภาพและหน้าจอแสดงผล\nการเลื่อนคิวงานติตตั้ง ขอความกรุณาลูกค้าแจ้งพนักงานขายก่อนวันติดตั้ง อย่างน้อย 5 วันทำการ ถ้าน้อยกว่า 5 วัน จะมีค่าดำเนินการ 3,000 บาท / ครั้ง\nบริษัทฯ จะรับผิดชอบดำเนินการแก้ไขงาน ในกรณีที่ความผิดพลาดเกิดจากบริษัทฯ เท่านั้น`;
+
   const [generalInfo, setGeneralInfo] = useState({
     surveyDate: new Date().toISOString().split('T')[0], confirmDate: '', installDates: [], location: '',
     customerName: '', customerPhone: '', agentName: '', agentPhone: '', customFabrics: [],
     creatorName: '', creatorSignature: '',
-    terms: `กรณีมีการเปลี่ยนแปลงรายละเอียดจากที่ตกลงไว้ในใบสรุปงานติดตั้งผ้าม่านนี้ ผู้สั่งซื้อยินยอมที่จะชำระเงินเพิ่มในส่วนของ\n(A) ค่าแก้ไขผ้าม่านและอุปกรณ์ เช่น ความสูง ความกว้างของผ้าม่าน รางม่าน ที่เกิดจากหน้างานเปลี่ยนแปลง บิ้วท์อินเพิ่มเติม ฯลฯ\n(B) ค่าติดตั้งรางละ 200 บาท\n(C) ค่าเดินทาง 1,500 บาท ใน กทม. (ต่างจังหวัดคิดตามระยะทาง)\n(D) สีสินค้าจริงอาจแตกต่างจากภาพแสดงผลเล็กน้อย เนื่องจากข้อจำกัดด้านการถ่ายภาพและหน้าจอแสดงผล\nการเลื่อนคิวงานติตตั้ง ขอความกรุณาลูกค้าแจ้งพนักงานขายก่อนวันติดตั้ง อย่างน้อย 5 วันทำการ ถ้าน้อยกว่า 5 วัน จะมีค่าดำเนินการ 3,000 บาท / ครั้ง\nบริษัทฯ จะรับผิดชอบดำเนินการแก้ไขงาน ในกรณีที่ความผิดพลาดเกิดจากบริษัทฯ เท่านั้น`
+    terms: defaultTerms
   });
   const [tempInstallDate, setTempInstallDate] = useState('');
   const [items, setItems] = useState([]);
@@ -1774,9 +1749,8 @@ const App = () => {
     if (firebaseUser && appUser && view === 'dashboard') loadProjectsList();
   }, [firebaseUser, appUser, view]);
 
-  // Track History for Undo/Redo (Debounced by 400ms)
   useEffect(() => {
-    if (view !== 'editor') return; // Track only when editing
+    if (view !== 'editor') return; 
     if (isUndoRedoAction.current) {
         isUndoRedoAction.current = false;
         return;
@@ -1786,11 +1760,9 @@ const App = () => {
         const lastState = historyRef.current[historyIndexRef.current];
 
         if (currentState !== lastState) {
-            // Cut off any future states if we are rewriting history
             historyRef.current = historyRef.current.slice(0, historyIndexRef.current + 1);
             historyRef.current.push(currentState);
             
-            // Limit history to 50 steps to save memory
             if (historyRef.current.length > 50) {
                 historyRef.current.shift();
             } else {
@@ -1825,7 +1797,6 @@ const App = () => {
     }
   };
 
-  // Real-time DB Sync Fix - 100% Online Only with Recovery
   useEffect(() => {
     if (!firebaseUser || !appUser) return;
     const settingsRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'appDB');
@@ -1834,7 +1805,7 @@ const App = () => {
         const mergedDB = { ...DEFAULT_DB, ...snap.data() };
         setAppDB(mergedDB);
         appDBRef.current = mergedDB;
-        localStorage.setItem('backupAppDB', JSON.stringify(mergedDB)); // Save backup to device
+        localStorage.setItem('backupAppDB', JSON.stringify(mergedDB));
       } else {
         const localBackup = localStorage.getItem('backupAppDB');
         if(localBackup) {
@@ -1851,7 +1822,6 @@ const App = () => {
     return () => unsub();
   }, [firebaseUser, appUser]);
   
-  // Sync appDBRef when appDB changes manually
   useEffect(() => {
       appDBRef.current = appDB;
   }, [appDB]);
@@ -1871,7 +1841,6 @@ const App = () => {
     }
   };
   
-  // --- Background Queue Processor ---
   useEffect(() => {
     const processQueue = async () => {
       processingRef.current = true;
@@ -1888,7 +1857,6 @@ const App = () => {
         const compressedImg = await processImageFile(task.file, 400, 0.7, null);
         if (compressedImg) {
           try {
-            // Upload with Cloudinary (No strict rate limits like ImgBB)
             const url = await uploadImageToCloudinary(compressedImg); 
             if (url) {
               setAppDB(prev => {
@@ -1908,7 +1876,6 @@ const App = () => {
         } else { failCount++; }
       }
       
-      // Finalize Batch
       setTimeout(() => {
         saveAppDBToFirebase(appDBRef.current);
         setDialog({ type: 'alert', message: `✅ อัปโหลดรูปภาพเบื้องหลังเสร็จสิ้น!\nสำเร็จ: ${successCount} รูป\nล้มเหลว: ${failCount} รูป` });
@@ -1934,9 +1901,8 @@ const App = () => {
     setCurrentProjectId(Date.now().toString());
     const currentUserInfo = allAccounts.find(u => u.username === appUser.username) || appUser;
     
-    setProjectOwner(appUser.username); // Set owner for new project
+    setProjectOwner(appUser.username); 
 
-    // Reset History for new project
     historyRef.current = [];
     historyIndexRef.current = -1;
 
@@ -1945,7 +1911,7 @@ const App = () => {
       customerName: '', customerPhone: '', agentName: '', agentPhone: '', customFabrics: [],
       creatorName: currentUserInfo.name || currentUserInfo.username,
       creatorSignature: currentUserInfo.signatureUrl || '',
-      terms: `กรณีมีการเปลี่ยนแปลงรายละเอียดจากที่ตกลงไว้ในใบสรุปงานติดตั้งผ้าม่านนี้ ผู้สั่งซื้อยินยอมที่จะชำระเงินเพิ่มในส่วนของ\n(A) ค่าแก้ไขผ้าม่านและอุปกรณ์ เช่น ความสูง ความกว้างของผ้าม่าน รางม่าน ที่เกิดจากหน้างานเปลี่ยนแปลง บิ้วท์อินเพิ่มเติม ฯลฯ\n(B) ค่าติดตั้งรางละ 200 บาท\n(C) ค่าเดินทาง 1,500 บาท ใน กทม. (ต่างจังหวัดคิดตามระยะทาง)\nการเลื่อนคิวงานติตตั้ง ขอความกรุณาลูกค้าแจ้งพนักงานขายก่อนวันติดตั้ง อย่างน้อย 5 วันทำการ ถ้าน้อยกว่า 5 วัน จะมีค่าดำเนินการ 3,000 บาท / ครั้ง\nบริษัทฯ จะรับผิดชอบดำเนินการแก้ไขงาน ในกรณีที่ความผิดพลาดเกิดจากบริษัทฯ เท่านั้น`
+      terms: defaultTerms
     });
     setItems([]);
     addItem();
@@ -1959,15 +1925,13 @@ const App = () => {
     let cName = proj.generalInfo?.creatorName;
     let cSig = proj.generalInfo?.creatorSignature;
     
-    // Auto-resolve older projects that might have saved username instead of actual name
     if (ownerAcc) {
         if (!cName || cName === proj.owner) cName = ownerAcc.name || ownerAcc.username;
         if (!cSig) cSig = ownerAcc.signatureUrl || '';
     }
 
-    setProjectOwner(proj.owner || appUser.username); // Preserve owner
+    setProjectOwner(proj.owner || appUser.username); 
 
-    // Reset History when opening existing project
     historyRef.current = [];
     historyIndexRef.current = -1;
 
@@ -2032,7 +1996,6 @@ const App = () => {
     if (!val) return;
     const u = allAccounts.find(acc => (acc.name || acc.username) === val);
     
-    // แสดง Dialog ยืนยันการเปลี่ยนเจ้าของงาน
     setDialog({
       type: 'confirm',
       message: `ยืนยันการเปลี่ยนผู้จัดทำเป็น "${val}" ใช่หรือไม่?\n\n(การเปลี่ยนผู้จัดทำ จะโอนสิทธิ์ความเป็นเจ้าของงานให้พนักงานคนนี้ในหน้า Dashboard ทันที)`,
@@ -2042,7 +2005,7 @@ const App = () => {
           creatorName: val,
           creatorSignature: u ? (u.signatureUrl || '') : prev.creatorSignature
         }));
-        if (u) setProjectOwner(u.username); // เปลี่ยน Owner จริงในระบบ
+        if (u) setProjectOwner(u.username); 
       }
     });
   };
@@ -2061,12 +2024,10 @@ const App = () => {
   
   const removeItem = (id) => setItems(prev => prev.filter(item => item.id !== id));
   
-  // --- NEW: ฟังก์ชันทำสำเนาและจัดลำดับหน้าต่าง ---
   const duplicateItem = (index) => {
     const itemToDuplicate = items[index];
-    const newItem = JSON.parse(JSON.stringify(itemToDuplicate)); // Deep copy
+    const newItem = JSON.parse(JSON.stringify(itemToDuplicate)); 
     
-    // สร้าง ID ใหม่ทั้งหมดเพื่อไม่ให้ Key ชนกันและแก้ไขแยกกันได้
     newItem.id = Date.now().toString() + '_' + Math.random().toString(36).substr(2, 5);
     newItem.areas = newItem.areas.map(area => ({
       ...area,
@@ -2079,7 +2040,7 @@ const App = () => {
 
     setItems(prev => {
       const newItems = [...prev];
-      newItems.splice(index + 1, 0, newItem); // แทรกต่อท้ายรายการเดิม
+      newItems.splice(index + 1, 0, newItem); 
       return newItems;
     });
   };
@@ -2166,7 +2127,6 @@ const App = () => {
     }));
   };
 
-  // Helper Function for Smart Grouping Areas by Dimensions & Styles
   const getGroupedAreas = (item) => {
     const groups = {};
     item.areas.forEach((area, idx) => {
@@ -2194,7 +2154,6 @@ const App = () => {
     return `บานที่ ${nums.slice(0, -1).join(', ')} และ ${nums[nums.length - 1]}`;
   };
 
-  // Filter projects for Dashboard
   const filteredProjects = projectsList.filter(proj => {
     const matchSearch = proj.generalInfo?.customerName?.toLowerCase().includes(searchQuery.toLowerCase()) || false;
     const passSearch = searchQuery.trim() === '' || matchSearch;
@@ -2282,7 +2241,6 @@ const App = () => {
       <DatabaseModal appDB={appDB} setAppDB={setAppDB} showDBSettings={showDBSettings} setShowDBSettings={setShowDBSettings} saveAppDB={saveAppDBToFirebase} setDialog={setDialog} setBgUploadQueue={setBgUploadQueue} />
       <CustomFabricModal show={showCustomFabricModal} onClose={()=>setShowCustomFabricModal(false)} onAdd={(fab)=>setGeneralInfo(prev=>({...prev, customFabrics: [...(prev.customFabrics||[]), fab]}))} setDialog={setDialog} />
 
-      {/* --- BACKGROUND UPLOAD TOAST --- */}
       {bgUploadProgress.active && (
         <div className="fixed bottom-6 left-6 bg-indigo-900 text-white p-4 rounded-lg shadow-2xl z-[9999999] flex flex-col gap-2 w-72 border border-indigo-700 no-print transition-all">
             <div className="flex items-center justify-between">
@@ -2309,7 +2267,6 @@ const App = () => {
           
           .avoid-break { page-break-inside: avoid !important; }
           
-          /* Force centering per page */
           .print-center-page {
             height: 100vh;
             width: 100%;
@@ -2324,29 +2281,23 @@ const App = () => {
           
           .print-content-wrapper {
             width: 100% !important;
-            max-width: 277mm !important; /* Width of A4 (297mm) minus margins */
+            max-width: 277mm !important;
           }
           
           .print-transform-none { transform: none !important; }
-          
-          /* Utility wrappers for text */
           .whitespace-pre-wrap { white-space: pre-wrap !important; word-break: break-word !important; }
-          
-          /* Hide inputs and show divs */
           select { display: none !important; }
         }
       `}</style>
 
       <div className="max-w-[1200px] mx-auto bg-white shadow-lg p-4 md:p-8 rounded-sm relative z-0 print:shadow-none print:p-0 print:bg-transparent w-full print:max-w-none">
         
-        {/* --- Page 1: General Info --- */}
         <div className="print-center-page w-full">
           <div className="print-content-wrapper w-full">
             <div className="mb-6 border-b-2 border-gray-800 pb-3 flex justify-between items-center avoid-break relative">
               <button onClick={()=>{saveData(); setView('dashboard');}} className="absolute -left-12 md:-left-20 top-1/2 transform -translate-y-1/2 no-print bg-gray-200 hover:bg-gray-300 text-gray-700 p-2 rounded-full shadow-md transition-colors z-10"><ArrowLeft size={24}/></button>
               
               <div className="w-1/3 text-left flex items-center gap-4">
-                {/* ระบบลบสีพื้นหลังอัตโนมัติ */}
                 <img 
                   src={logoSrc} 
                   alt="Logo" 
@@ -2381,7 +2332,6 @@ const App = () => {
                   </div>
                 </div>
                 
-                {/* Creator & Signature Section */}
                 <div className="mt-8 flex flex-col items-center justify-end relative h-24">
                   {generalInfo.creatorSignature && (
                     <div className="h-12 w-full flex justify-center items-end mb-1">
@@ -2426,7 +2376,7 @@ const App = () => {
 
             <div className="mb-6 avoid-break bg-red-50 p-3 rounded border border-red-200 relative z-0">
               <h3 className="font-bold text-red-600 print:text-gray-800 mb-2 text-sm print:text-[15px] underline">หมายเหตุเงื่อนไข :</h3>
-              <textarea name="terms" value={generalInfo.terms} onChange={handleGeneralChange} rows="4" className="w-full text-xs bg-transparent outline-none print-hidden text-gray-700 leading-tight resize-none"></textarea>
+              <textarea name="terms" value={generalInfo.terms} onChange={handleGeneralChange} rows="5" className="w-full text-xs bg-transparent outline-none print-hidden text-gray-700 leading-tight resize-none"></textarea>
               <div className="hidden print-block w-full text-[13px] text-gray-800 leading-relaxed whitespace-pre-wrap font-medium">{generalInfo.terms}</div>
             </div>
           </div>
@@ -2434,7 +2384,6 @@ const App = () => {
 
         <hr className="my-6 border-gray-300 no-print" />
 
-        {/* --- Page 2+: Items Mapping --- */}
         <div className="space-y-10 print:space-y-0 w-full flex flex-col items-center">
           {items.map((item, index) => {
             const primaryArea = item.areas[0] || {};
@@ -2477,7 +2426,6 @@ const App = () => {
                 <div className="print-content-wrapper w-full border-2 border-gray-800 p-1 relative rounded bg-white hover:z-50 transition-all duration-300 shadow-sm hover:shadow-md">
                   <div className="absolute top-0 left-0 bg-gray-800 text-white px-4 py-1.5 text-sm font-bold z-10 rounded-br">รายการที่ {index + 1}</div>
                   
-                  {/* --- NEW: กลุ่มปุ่มจัดการหน้าต่าง (คัดลอก, เลื่อนขึ้น, เลื่อนลง, ลบ) --- */}
                   <div className="no-print absolute -top-4 right-0 sm:-right-2 flex gap-1.5 z-30">
                     {index > 0 && (
                       <button onClick={() => moveItemUp(index)} className="bg-gray-700 text-white rounded-full p-2 hover:bg-gray-800 shadow-md transition-transform hover:scale-110" title="เลื่อนหน้าต่างขึ้น">
@@ -2499,7 +2447,6 @@ const App = () => {
 
                   <div className="border border-gray-300 flex flex-col lg:flex-row print:flex-row h-auto lg:h-[750px] print:h-[185mm] mt-8 md:mt-0 bg-white relative overflow-hidden w-full box-border">
                     
-                    {/* Left Column 70% */}
                     <div className="w-full lg:w-[70%] print:w-[70%] min-h-[400px] h-[50vh] sm:h-[60vh] lg:h-full print:h-full border-b lg:border-b-0 print:border-b-0 lg:border-r print:border-r border-gray-300 flex flex-col bg-white relative z-20">
                       
                       <div className="flex-1 w-full border-b border-gray-300 flex flex-col relative bg-gray-100 shrink-0 overflow-hidden">
@@ -2545,7 +2492,6 @@ const App = () => {
                       </div>
                     </div>
 
-                    {/* Right Column 30% */}
                     <div className="w-full lg:w-[30%] print:w-[30%] text-xs flex flex-col bg-white overflow-y-auto print:overflow-visible min-h-[400px] lg:h-full print:h-auto relative z-10 print:justify-start">
                       
                       <div className="bg-gray-800 text-white p-3 print:bg-white print:text-black print:p-3 print:pb-0 flex flex-col shrink-0">
@@ -2556,7 +2502,6 @@ const App = () => {
                       
                       <div className="p-3 print:p-2 flex flex-col justify-start gap-4 print:gap-3 h-full print:h-auto print:justify-start">
                         
-                        {/* ---------------- EDITOR VIEW (NO PRINT) ---------------- */}
                         <div className="border border-gray-300 p-2 rounded bg-gray-50 no-print">
                           <div className="flex justify-between items-center mb-2 border-b border-gray-300 pb-1">
                             <span className="font-bold text-gray-800 text-[14px]">รายละเอียดวัสดุ/ผ้า</span>
@@ -2573,7 +2518,6 @@ const App = () => {
                                   )}
                                 </div>
                               </div>
-                              {/* Fabrics List for this area */}
                               {area.fabrics.map((fab) => {
                                 const isCustom = fab.mainType === 'ผ้านอกระบบ (เฉพาะงานนี้)';
                                 const isCurtain = fab.mainType === 'ผ้าม่าน';
@@ -2583,7 +2527,6 @@ const App = () => {
                                 let nameOptions = []; 
                                 let colorOptions = [];
                                 
-                                // Combined models for 'ผ้าม่าน'
                                 let curtainModels = [];
                                 if (isCurtain && appDB.curtainTypes['ผ้าม่าน']) {
                                     Object.entries(appDB.curtainTypes['ผ้าม่าน']).forEach(([sT, mods]) => {
@@ -2650,7 +2593,6 @@ const App = () => {
                                 )
                               })}
                               
-                              {/* Specific Area Style Config (Overrides Global) */}
                               <div className="flex flex-col gap-1.5 mt-2 bg-indigo-50/50 p-2 rounded border border-indigo-100">
                                 <span className="font-bold text-[10px] text-indigo-800 mb-0.5">รูปแบบการทำงาน (กำหนดเฉพาะบานนี้)</span>
                                 <div className="flex gap-1.5 items-center">
@@ -2670,7 +2612,6 @@ const App = () => {
                           ))}
                         </div>
 
-                        {/* ---------------- PRINT VIEW (SMART GROUPING) ---------------- */}
                         <div className="hidden print-block w-full mt-2">
                           <span className="font-bold text-gray-800 text-[14px] border-b border-gray-800 pb-1 mb-2 block">รูปแบบและขนาดม่าน</span>
                           {getGroupedAreas(item).map((grp, gIdx) => (

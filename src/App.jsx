@@ -61,18 +61,25 @@ const DEFAULT_ACCOUNTS = [
 const AutoFitText = ({ text, className }) => {
   const containerRef = useRef(null);
   const textRef = useRef(null);
-  const [scale, setScale] = useState(1);
 
   useEffect(() => {
     const resizeText = () => {
       if (!containerRef.current || !textRef.current) return;
-      const cw = containerRef.current.clientWidth;
-      const tw = textRef.current.scrollWidth;
-      
+      const container = containerRef.current;
+      const textEl = textRef.current;
+
+      // 1. รีเซ็ตเป็นขนาดมาตรฐานก่อนเพื่อวัดขนาดจริง
+      textEl.style.fontSize = '13px';
+
+      const cw = container.clientWidth;
+      const tw = textEl.scrollWidth;
+
+      // 2. ถ้ากว้างเกินกล่อง ให้ลดขนาด fontSize ลงโดยตรง (หลีกเลี่ยง transform: scale เพื่อแก้ปัญหา PDF ตัดขอบ)
       if (tw > cw && cw > 0) {
-        setScale((cw - 4) / tw);
-      } else {
-        setScale(1); 
+        const ratio = (cw - 4) / tw; // เผื่อระยะซ้ายขวา 4px
+        const newFontSize = Math.floor(13 * ratio);
+        // กำหนดขนาดขั้นต่ำไว้ที่ 7px จะได้ไม่เล็กจนอ่านไม่ออก
+        textEl.style.fontSize = `${Math.max(newFontSize, 7)}px`;
       }
     };
 
@@ -85,9 +92,14 @@ const AutoFitText = ({ text, className }) => {
       observer.observe(containerRef.current);
     }
 
+    // สั่งให้คำนวณขนาดตัวอักษรใหม่ตอนที่กดปุ่ม Print/PDF เพื่อให้พอดีกับกระดาษเป๊ะๆ
+    const handleBeforePrint = () => resizeText();
+    window.addEventListener('beforeprint', handleBeforePrint);
+
     return () => {
       clearTimeout(timeoutId);
       if (observer) observer.disconnect();
+      window.removeEventListener('beforeprint', handleBeforePrint);
     };
   }, [text]);
 
@@ -97,8 +109,8 @@ const AutoFitText = ({ text, className }) => {
       <div ref={containerRef} className="w-full overflow-hidden flex items-center justify-center min-h-[20px]">
           <span 
               ref={textRef} 
-              className={`font-bold whitespace-nowrap origin-center ${className || ''}`} 
-              style={{ fontSize: '13px', transform: `scale(${scale})`, display: 'inline-block' }}
+              className={`font-bold whitespace-nowrap ${className || ''}`} 
+              style={{ display: 'inline-block' }}
           >
               {text}
           </span>

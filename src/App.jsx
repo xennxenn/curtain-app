@@ -1279,7 +1279,7 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
                     const clipId = `clip-${idPrefix}-${item.id}-${area.id}`;
                     
                     const styleMain1 = area.styleMain1 || item.styleMain1 || item.styleMain || '';
-                    const autoMaskType = styleMain1.match(/ม้วน|พับ|มู่ลี่/) ? 'height' : 'width';
+                    const autoMaskType = styleMain1.match(/ม่านม้วน|ม่านพับ|มู่ลี่|ม่านปรับแสง/) ? 'height' : 'width';
                     const maskType = area.maskType || autoMaskType;
                     const mPct = (area.maskPct || 20) / 100;
                     const maskOpacity = (area.maskOpacity ?? 87) / 100;
@@ -1537,7 +1537,7 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
             {item.areas.map((area, idx) => {
               const isActive = activeAreaId === area.id;
               const styleMain1 = area.styleMain1 || item.styleMain1 || item.styleMain || '';
-              const autoMaskType = styleMain1.match(/ม้วน|พับ|มู่ลี่/) ? 'height' : 'width';
+              const autoMaskType = styleMain1.match(/ม่านม้วน|ม่านพับ|มู่ลี่|ม่านปรับแสง/) ? 'height' : 'width';
               return (
                 <div key={area.id} className={`flex flex-col gap-2 border p-2.5 rounded bg-white transition-all ${isActive ? 'border-blue-400 ring-2 ring-blue-100 shadow-md' : 'border-gray-200'}`}>
                   <div className="flex flex-wrap gap-1 items-center justify-between">

@@ -21,10 +21,18 @@ const db = getFirestore(app);
 const appId = "curtain-app-3d38a";
 
 // ---------------------------------------------------------
-// ☁️ CLOUDINARY UPLOAD SETTINGS (ทดแทน IMGBB)
+// ☁️ CLOUDINARY UPLOAD SETTINGS
 // ---------------------------------------------------------
 const CLOUDINARY_URL = "https://api.cloudinary.com/v1_1/dsxpwfujb/image/upload";
 const CLOUDINARY_UPLOAD_PRESET = "ml_default"; 
+
+// --- NEW: ฟังก์ชันเพิ่มพารามิเตอร์บีบอัดรูปภาพให้เบาลงตอนทำ PDF ---
+const optImg = (url, width) => {
+  if (!url || typeof url !== 'string' || !url.includes('cloudinary.com/')) return url;
+  if (url.includes('q_auto')) return url; // ป้องกันการใส่ซ้ำ
+  // ใช้ f_auto,q_auto เพื่อให้เซิร์ฟเวอร์แปลงเป็น WebP/JPEG คุณภาพบีบอัดสูง และ w_ เพื่อจำกัดขนาด
+  return url.replace('/upload/', `/upload/f_auto,q_auto${width ? `,w_${width}` : ''}/`);
+};
 
 // --- SVGs for default fallback ---
 const SVGS = {
@@ -68,23 +76,19 @@ const AutoFitText = ({ text, className }) => {
       const container = containerRef.current;
       const textEl = textRef.current;
 
-      // 1. รีเซ็ตเป็นขนาดมาตรฐานก่อนเพื่อวัดขนาดจริง
       textEl.style.fontSize = '13px';
-
       const cw = container.clientWidth;
       const tw = textEl.scrollWidth;
 
-      // 2. ถ้ากว้างเกินกล่อง ให้ลดขนาด fontSize ลงโดยตรง (หลีกเลี่ยง transform: scale เพื่อแก้ปัญหา PDF ตัดขอบ)
       if (tw > cw && cw > 0) {
-        const ratio = (cw - 4) / tw; // เผื่อระยะซ้ายขวา 4px
+        const ratio = (cw - 12) / tw; 
         const newFontSize = Math.floor(13 * ratio);
-        // กำหนดขนาดขั้นต่ำไว้ที่ 7px จะได้ไม่เล็กจนอ่านไม่ออก
         textEl.style.fontSize = `${Math.max(newFontSize, 7)}px`;
       }
     };
 
     resizeText();
-    const timeoutId = setTimeout(resizeText, 150);
+    const timeoutId = setTimeout(resizeText, 300);
 
     let observer;
     if (window.ResizeObserver && containerRef.current) {
@@ -92,8 +96,9 @@ const AutoFitText = ({ text, className }) => {
       observer.observe(containerRef.current);
     }
 
-    // สั่งให้คำนวณขนาดตัวอักษรใหม่ตอนที่กดปุ่ม Print/PDF เพื่อให้พอดีกับกระดาษเป๊ะๆ
-    const handleBeforePrint = () => resizeText();
+    const handleBeforePrint = () => {
+        setTimeout(resizeText, 50); 
+    };
     window.addEventListener('beforeprint', handleBeforePrint);
 
     return () => {
@@ -106,7 +111,7 @@ const AutoFitText = ({ text, className }) => {
   if (!text) return null;
 
   return (
-      <div ref={containerRef} className="w-full overflow-hidden flex items-center justify-center min-h-[20px]">
+      <div ref={containerRef} className="w-full overflow-hidden print:overflow-visible px-1 flex items-center justify-center min-h-[20px]">
           <span 
               ref={textRef} 
               className={`font-bold whitespace-nowrap ${className || ''}`} 
@@ -168,20 +173,28 @@ const removeWhiteBackground = (dataUrl) => {
     const img = new Image();
     img.onload = () => {
       const canvas = document.createElement('canvas');
-      canvas.width = img.width;
-      canvas.height = img.height;
+      let w = img.width;
+      let h = img.height;
+      
+      // บีบอัดลายเซ็นต์ให้ไม่ใหญ่เกินไป เพื่อลดขนาดไฟล์ PDF
+      if (h > 300) {
+          w = Math.round(w * (300 / h));
+          h = 300;
+      }
+      
+      canvas.width = w;
+      canvas.height = h;
       const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0);
-      const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, w, h);
+      const imgData = ctx.getImageData(0, 0, w, h);
       const data = imgData.data;
       for (let i = 0; i < data.length; i += 4) {
-        const r = data[i], g = data[i+1], b = data[i+2];
-        if (r > 190 && g > 190 && b > 190) {
+        if (data[i] > 190 && data[i+1] > 190 && data[i+2] > 190) {
           data[i+3] = 0;
         }
       }
       ctx.putImageData(imgData, 0, 0);
-      resolve(canvas.toDataURL('image/png'));
+      resolve(canvas.toDataURL('image/png')); // บันทึกเป็น PNG เพื่อเก็บความโปร่งใส
     };
     img.src = dataUrl;
   });
@@ -226,6 +239,7 @@ const processImageFile = async (file, maxWidth = 1024, quality = 0.7, setDialog)
         canvas.width = width; canvas.height = height;
         const ctx = canvas.getContext('2d');
         ctx.drawImage(img, 0, 0, width, height);
+        // แปลงเป็น webp คุณภาพ 70% ลดขนาดตั้งแต่ต้นทาง
         resolve(canvas.toDataURL('image/webp', quality)); 
       };
       img.onerror = () => {
@@ -1262,7 +1276,7 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
                 className="transition-transform duration-75 ease-out shadow-sm"
             >
               <img 
-                  src={item.image} 
+                  src={optImg(item.image, 1600)} 
                   alt="Window view" 
                   className="absolute inset-0 w-full h-full pointer-events-none block object-fill" 
                   onLoad={e => setImgNativeSize({ w: e.target.naturalWidth, h: e.target.naturalHeight })} 
@@ -1349,7 +1363,7 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
                             <clipPath id={clipIdAct}><polygon points={clipPoly} /></clipPath>
                             <g clipPath={`url(#${clipIdAct})`}>
                               <image 
-                                href={maskImgFallback} 
+                                href={optImg(maskImgFallback, 800)} 
                                 x="0" y="0" 
                                 width={imgW} height={imgH} 
                                 preserveAspectRatio="none" 
@@ -1365,22 +1379,22 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
                           const rightImg = masks['รวบขวา'] || maskImgFallback;
                           maskElements.push(
                             <g key="W" clipPath={`url(#${clipId})`}>
-                              <image href={leftImg} x={minX} y={minY} width={w * mPct} height={h} preserveAspectRatio="none" opacity={maskOpacity} />
-                              <image href={rightImg} x={maxX - (w * mPct)} y={minY} width={w * mPct} height={h} preserveAspectRatio="none" opacity={maskOpacity} />
+                              <image href={optImg(leftImg, 800)} x={minX} y={minY} width={w * mPct} height={h} preserveAspectRatio="none" opacity={maskOpacity} />
+                              <image href={optImg(rightImg, 800)} x={maxX - (w * mPct)} y={minY} width={w * mPct} height={h} preserveAspectRatio="none" opacity={maskOpacity} />
                             </g>
                           );
                         } else if (action.includes('ขวา')) {
                           const rightImg = masks['รวบขวา'] || masks[action] || maskImgFallback;
                           maskElements.push(
                             <g key="R" clipPath={`url(#${clipId})`}>
-                              <image href={rightImg} x={maxX - (w * mPct)} y={minY} width={w * mPct} height={h} preserveAspectRatio="none" opacity={maskOpacity} />
+                              <image href={optImg(rightImg, 800)} x={maxX - (w * mPct)} y={minY} width={w * mPct} height={h} preserveAspectRatio="none" opacity={maskOpacity} />
                             </g>
                           );
                         } else {
                           const leftImg = masks['รวบซ้าย'] || masks[action] || maskImgFallback;
                           maskElements.push(
                             <g key="L" clipPath={`url(#${clipId})`}>
-                              <image href={leftImg} x={minX} y={minY} width={w * mPct} height={h} preserveAspectRatio="none" opacity={maskOpacity} />
+                              <image href={optImg(leftImg, 800)} x={minX} y={minY} width={w * mPct} height={h} preserveAspectRatio="none" opacity={maskOpacity} />
                             </g>
                           );
                         }
@@ -1634,7 +1648,6 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
   );
 };
 
-// --- Main App Component ---
 const App = () => {
   const [firebaseUser, setFirebaseUser] = useState(null);
   const [appUser, setAppUser] = useState(null); 
@@ -1651,7 +1664,6 @@ const App = () => {
   const [dialog, setDialog] = useState(null);
   const [allAccounts, setAllAccounts] = useState(DEFAULT_ACCOUNTS);
   
-  // --- Logo Background Processing ---
   const [logoSrc, setLogoSrc] = useState("https://lh3.googleusercontent.com/d/1xT2ysUSWkTcFxs1ztoGxZuQcnO_c66Tu");
 
   useEffect(() => {
@@ -1661,11 +1673,15 @@ const App = () => {
       img.onload = () => {
         try {
           const canvas = document.createElement('canvas');
-          canvas.width = img.width;
-          canvas.height = img.height;
+          let w = img.width;
+          let h = img.height;
+          // บีบอัดขนาดโลโก้ลงมาเพื่อลดภาระ PDF
+          if (h > 200) { w = Math.round(w * (200 / h)); h = 200; }
+          canvas.width = w;
+          canvas.height = h;
           const ctx = canvas.getContext('2d');
-          ctx.drawImage(img, 0, 0);
-          const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0, w, h);
+          const imgData = ctx.getImageData(0, 0, w, h);
           const data = imgData.data;
           
           for (let i = 0; i < data.length; i += 4) {
@@ -1697,7 +1713,6 @@ const App = () => {
   const isUndoRedoAction = useRef(false);
   const [, setForceUpdate] = useState(false);
 
-  // --- อัปเดตข้อความหมายเหตุ (D) ---
   const defaultTerms = `กรณีมีการเปลี่ยนแปลงรายละเอียดจากที่ตกลงไว้ในใบสรุปงานติดตั้งผ้าม่านนี้ ผู้สั่งซื้อยินยอมที่จะชำระเงินเพิ่มในส่วนของ\n(A) ค่าแก้ไขผ้าม่านและอุปกรณ์ เช่น ความสูง ความกว้างของผ้าม่าน รางม่าน ที่เกิดจากหน้างานเปลี่ยนแปลง บิ้วท์อินเพิ่มเติม ฯลฯ\n(B) ค่าติดตั้งรางละ 200 บาท\n(C) ค่าเดินทาง 1,500 บาท ใน กทม. (ต่างจังหวัดคิดตามระยะทาง)\n(D) สีสินค้าจริงอาจแตกต่างจากภาพแสดงผลเล็กน้อย เนื่องจากข้อจำกัดด้านการถ่ายภาพและหน้าจอแสดงผล\nการเลื่อนคิวงานติตตั้ง ขอความกรุณาลูกค้าแจ้งพนักงานขายก่อนวันติดตั้ง อย่างน้อย 5 วันทำการ ถ้าน้อยกว่า 5 วัน จะมีค่าดำเนินการ 3,000 บาท / ครั้ง\nบริษัทฯ จะรับผิดชอบดำเนินการแก้ไขงาน ในกรณีที่ความผิดพลาดเกิดจากบริษัทฯ เท่านั้น`;
 
   const [generalInfo, setGeneralInfo] = useState({
@@ -1947,11 +1962,25 @@ const App = () => {
     historyRef.current = [];
     historyIndexRef.current = -1;
 
+    // อัปเดตเงื่อนไขข้อ D อัตโนมัติสำหรับใบงานเก่า
+    let loadedTerms = proj.generalInfo?.terms || defaultTerms;
+    if (!loadedTerms.includes('(D) สีสินค้าจริง')) {
+        if (loadedTerms.includes('(C) ค่าเดินทาง 1,500 บาท ใน กทม. (ต่างจังหวัดคิดตามระยะทาง)')) {
+            loadedTerms = loadedTerms.replace(
+                '(C) ค่าเดินทาง 1,500 บาท ใน กทม. (ต่างจังหวัดคิดตามระยะทาง)',
+                '(C) ค่าเดินทาง 1,500 บาท ใน กทม. (ต่างจังหวัดคิดตามระยะทาง)\n(D) สีสินค้าจริงอาจแตกต่างจากภาพแสดงผลเล็กน้อย เนื่องจากข้อจำกัดด้านการถ่ายภาพและหน้าจอแสดงผล'
+            );
+        } else {
+            loadedTerms += '\n(D) สีสินค้าจริงอาจแตกต่างจากภาพแสดงผลเล็กน้อย เนื่องจากข้อจำกัดด้านการถ่ายภาพและหน้าจอแสดงผล';
+        }
+    }
+
     setGeneralInfo({ 
        ...proj.generalInfo, 
        customFabrics: proj.generalInfo?.customFabrics || [],
        creatorName: cName || appUser.name || appUser.username,
-       creatorSignature: cSig || ''
+       creatorSignature: cSig || '',
+       terms: loadedTerms
     });
     const migratedItems = (proj.items || []).map(item => ({
       ...item,
@@ -2347,7 +2376,7 @@ const App = () => {
                 <div className="mt-8 flex flex-col items-center justify-end relative h-24">
                   {generalInfo.creatorSignature && (
                     <div className="h-12 w-full flex justify-center items-end mb-1">
-                      <img src={generalInfo.creatorSignature} className="max-h-full object-contain mix-blend-multiply" alt="signature" />
+                      <img src={optImg(generalInfo.creatorSignature, 300)} className="max-h-full object-contain mix-blend-multiply" alt="signature" />
                     </div>
                   )}
                   {appUser.role === 'admin' ? (
@@ -2471,7 +2500,7 @@ const App = () => {
                           <div className="flex flex-col items-center bg-white border border-gray-200 p-1.5 sm:p-2 rounded shadow-sm h-full justify-between overflow-hidden">
                             <span className="text-[11px] sm:text-[13px] font-bold text-gray-800 w-full text-center mb-1 sm:mb-2 shrink-0">รูปแบบม่าน</span>
                             <div className="flex-1 w-full bg-gray-50 border border-gray-100 flex items-center justify-center rounded overflow-hidden p-0 relative mb-1 sm:mb-2">
-                              {styleImg1 ? <img src={styleImg1} className="w-full h-full object-cover" /> : <div dangerouslySetInnerHTML={{__html: SVGS.th}} className="w-full h-full" />}
+                              {styleImg1 ? <img src={optImg(styleImg1, 400)} className="w-full h-full object-cover" /> : <div dangerouslySetInnerHTML={{__html: SVGS.th}} className="w-full h-full" />}
                             </div>
                             <AutoFitText text={`${sMain1 || '-'} ${item.layers === 2 ? `/ ${sMain2 || '-'}` : ''}`} className="text-blue-800 print:text-black" />
                           </div>
@@ -2479,7 +2508,7 @@ const App = () => {
                           <div className="flex flex-col items-center bg-white border border-gray-200 p-1.5 sm:p-2 rounded shadow-sm h-full justify-between overflow-hidden">
                             <span className="text-[11px] sm:text-[13px] font-bold text-gray-800 w-full text-center mb-1 sm:mb-2 shrink-0">{txtMain || 'ชั้นที่ 1'}</span>
                             <div className="flex-1 w-full border border-gray-100 flex items-center justify-center rounded overflow-hidden bg-gray-50 p-0 mb-1 sm:mb-2">
-                              {imgMain ? <img src={imgMain} className="w-full h-full object-cover" /> : <span className="text-[10px] text-gray-400">-</span>}
+                              {imgMain ? <img src={optImg(imgMain, 400)} className="w-full h-full object-cover" /> : <span className="text-[10px] text-gray-400">-</span>}
                             </div>
                             <AutoFitText text={colMain || '-'} className="text-gray-700" />
                           </div>
@@ -2487,7 +2516,7 @@ const App = () => {
                           <div className={`flex flex-col items-center bg-white border border-gray-200 p-1.5 sm:p-2 rounded shadow-sm h-full justify-between overflow-hidden ${item.layers === 1 ? 'opacity-40 print:opacity-50' : ''}`}>
                             <span className="text-[11px] sm:text-[13px] font-bold text-gray-800 w-full text-center mb-1 sm:mb-2 shrink-0">{item.layers === 2 ? (txtSheer || 'ชั้นที่ 2') : 'ชั้นที่ 2'}</span>
                             <div className="flex-1 w-full border border-gray-100 flex items-center justify-center rounded overflow-hidden bg-gray-50 p-0 mb-1 sm:mb-2">
-                              {item.layers === 2 && imgSheer ? <img src={imgSheer} className="w-full h-full object-cover" /> : <span className="text-[10px] text-gray-400">-</span>}
+                              {item.layers === 2 && imgSheer ? <img src={optImg(imgSheer, 400)} className="w-full h-full object-cover" /> : <span className="text-[10px] text-gray-400">-</span>}
                             </div>
                             <AutoFitText text={item.layers === 2 ? (colSheer || '-') : '-'} className="text-gray-700" />
                           </div>
@@ -2495,7 +2524,7 @@ const App = () => {
                           <div className="flex flex-col items-center bg-white border border-gray-200 p-1.5 sm:p-2 rounded shadow-sm h-full justify-between overflow-hidden">
                             <span className="text-[11px] sm:text-[13px] font-bold text-gray-800 w-full text-center mb-1 sm:mb-2 shrink-0">ระยะชายม่าน</span>
                             <div className="flex-1 w-full bg-gray-50 border border-gray-100 flex items-center justify-center rounded overflow-hidden p-0 mb-1 sm:mb-2">
-                              {marginImg ? <img src={marginImg} className="w-full h-full object-cover" /> : <span className="text-[10px] text-gray-400">-</span>}
+                              {marginImg ? <img src={optImg(marginImg, 400)} className="w-full h-full object-cover" /> : <span className="text-[10px] text-gray-400">-</span>}
                             </div>
                             <AutoFitText text={item.marginBottom || '-'} className="text-gray-700" />
                           </div>

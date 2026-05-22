@@ -4,7 +4,6 @@ import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, doc, setDoc, getDoc, collection, getDocs, deleteDoc, onSnapshot } from 'firebase/firestore';
 
-// --- Firebase Initialization (Online Sync) ---
 const defaultFirebaseConfig = {
   apiKey: "AIzaSyCRM9SXoU2IWM0olulbyfAF2oeeGyJsygY",
   authDomain: "curtain-app-3d38a.firebaseapp.com",
@@ -166,11 +165,7 @@ const removeWhiteBackground = (dataUrl) => {
       const canvas = document.createElement('canvas');
       let w = img.width;
       let h = img.height;
-      
-      if (h > 300) {
-          w = Math.round(w * (300 / h));
-          h = 300;
-      }
+      if (h > 300) { w = Math.round(w * (300 / h)); h = 300; }
       
       canvas.width = w;
       canvas.height = h;
@@ -203,7 +198,6 @@ const loadHeic2Any = async () => {
 
 const processImageFile = async (file, maxWidth = 1024, quality = 0.7, setDialog) => {
   let processFile = file;
-  
   if (file.name.toLowerCase().match(/\.(heic|heif)$/i)) {
     try {
       const heic2any = await loadHeic2Any();
@@ -255,7 +249,6 @@ const CustomFabricModal = ({ show, onClose, onAdd, setDialog }) => {
     if(!subType || !name || !color || !f) {
       return setDialog({ type: 'alert', message: 'กรุณากรอกข้อมูลและเลือกรูปภาพให้ครบถ้วน' });
     }
-    
     setLoading(true);
     const compressed = await processImageFile(f, 400, 0.7, setDialog);
     if (compressed) {
@@ -635,7 +628,6 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
                        <button onClick={addFabricItem} disabled={isUploading} className={`bg-indigo-600 text-white py-1.5 rounded text-sm font-bold mt-1 ${isUploading ? 'opacity-50' : 'hover:bg-indigo-700'}`}>บันทึกรายการผ้า</button>
                     </div>
 
-                    {/* --- BULK UPLOAD FOLDER SECTION --- */}
                     <div className="bg-indigo-50 p-3 border border-indigo-200 rounded shadow-sm flex flex-col gap-2 mt-2">
                        <span className="text-sm font-bold text-indigo-800">เพิ่มรายการแบบกลุ่ม (เข้าคิวทำงานเบื้องหลัง)</span>
                        <p className="text-[11px] text-gray-600 leading-tight">
@@ -991,7 +983,58 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
   const wrapperRef = useRef(null);
   const viewportRef = useRef(null);
   const imgRef = useRef(null);
+  
+  const [imgDisplaySize, setImgDisplaySize] = useState({ w: '100%', h: '100%' });
   const [imgNativeSize, setImgNativeSize] = useState(null);
+
+  useEffect(() => {
+    const updateSize = () => {
+      if (!viewportRef.current || !imgNativeSize) return;
+      const vw = viewportRef.current.clientWidth;
+      const vh = viewportRef.current.clientHeight;
+      const { w: natW, h: natH } = imgNativeSize;
+      
+      if (natW === 0 || natH === 0) return;
+
+      const ri = natW / natH;
+      const rc = vw / vh;
+
+      let rw, rh;
+      if (item.imageFit === 'fill') { 
+          if (ri > rc) {
+              rh = vh;
+              rw = vh * ri;
+          } else {
+              rw = vw;
+              rh = vw / ri;
+          }
+      } else { 
+          if (ri > rc) {
+              rw = vw;
+              rh = vw / ri;
+          } else {
+              rh = vh;
+              rw = vh * ri;
+          }
+      }
+
+      setImgDisplaySize({ w: rw, h: rh });
+    };
+
+    updateSize();
+    const ro = new ResizeObserver(updateSize);
+    if (viewportRef.current) ro.observe(viewportRef.current);
+    
+    window.addEventListener('resize', updateSize);
+    const beforePrint = () => updateSize();
+    window.addEventListener('beforeprint', beforePrint);
+
+    return () => {
+        ro.disconnect();
+        window.removeEventListener('resize', updateSize);
+        window.removeEventListener('beforeprint', beforePrint);
+    };
+  }, [imgNativeSize, item.imageFit]);
 
   useEffect(() => {
     const el = viewportRef.current;
@@ -1024,22 +1067,12 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
 
   const getPctFromEvent = (e) => {
       if (!containerRef.current || !imgNativeSize) return null;
-      
-      let clientX, clientY;
-      if (e.touches && e.touches.length > 0) {
-        clientX = e.touches[0].clientX;
-        clientY = e.touches[0].clientY;
-      } else {
-        clientX = e.clientX;
-        clientY = e.clientY;
-      }
+      let clientX = e.touches && e.touches.length > 0 ? e.touches[0].clientX : e.clientX;
+      let clientY = e.touches && e.touches.length > 0 ? e.touches[0].clientY : e.clientY;
       
       const rect = containerRef.current.getBoundingClientRect();
-      const xInImg = (clientX - rect.left) / rect.width;
-      const yInImg = (clientY - rect.top) / rect.height;
-
-      const xPct = Math.max(0, Math.min(100, xInImg * 100));
-      const yPct = Math.max(0, Math.min(100, yInImg * 100));
+      const xPct = Math.max(0, Math.min(100, ((clientX - rect.left) / rect.width) * 100));
+      const yPct = Math.max(0, Math.min(100, ((clientY - rect.top) / rect.height) * 100));
 
       return { xPct, yPct };
   };
@@ -1078,8 +1111,9 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
   useEffect(() => {
     const handleGlobalPanelMove = (e) => {
       if (draggingPanel && wrapperRef.current) {
-        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        let clientX = e.touches && e.touches.length > 0 ? e.touches[0].clientX : e.clientX;
+        let clientY = e.touches && e.touches.length > 0 ? e.touches[0].clientY : e.clientY;
+
         const rect = wrapperRef.current.getBoundingClientRect();
         let newX = clientX - rect.left - panelDragStart.x;
         let newY = clientY - rect.top - panelDragStart.y;
@@ -1107,8 +1141,8 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
   const onPanelMouseDown = (e) => {
     e.stopPropagation();
     if (wrapperRef.current) {
-      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+      let clientX = e.touches && e.touches.length > 0 ? e.touches[0].clientX : e.clientX;
+      let clientY = e.touches && e.touches.length > 0 ? e.touches[0].clientY : e.clientY;
       const rect = wrapperRef.current.getBoundingClientRect();
       setDraggingPanel(true);
       setPanelDragStart({ x: clientX - rect.left - panelPos.x, y: clientY - rect.top - panelPos.y });
@@ -1161,9 +1195,10 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
         const dy = clientY - isPanning.startY;
         
         if (containerRef.current) {
-            const rect = containerRef.current.getBoundingClientRect();
-            const panX = isPanning.startPanX + (dx / rect.width) * 100;
-            const panY = isPanning.startPanY + (dy / rect.height) * 100;
+            const baseW = containerRef.current.offsetWidth;
+            const baseH = containerRef.current.offsetHeight;
+            const panX = isPanning.startPanX + ((dx / zoom) / baseW) * 100;
+            const panY = isPanning.startPanY + ((dy / zoom) / baseH) * 100;
             setPan({ x: panX, y: panY }); 
         }
         return; 
@@ -1237,15 +1272,8 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
     <div ref={wrapperRef} className="flex flex-col w-full h-full relative border-b md:border-b-0 print:border-b-0 border-gray-300 bg-white">
       <div 
         ref={viewportRef}
-        className={`relative w-full flex-grow overflow-hidden ${item.imageFit === 'fit' ? 'bg-white' : 'bg-gray-100'} ${mode === 'pan' ? (isPanning ? 'cursor-grabbing' : 'cursor-grab') : (activeAreaId && isDrawing ? 'cursor-crosshair' : 'cursor-default')}`}
-        style={{ 
-            touchAction: 'none', 
-            clipPath: 'inset(0)', 
-            contain: 'paint',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center'
-        }}
+        className={`relative w-full flex-grow overflow-hidden flex items-center justify-center ${item.imageFit === 'fit' ? 'bg-white' : 'bg-gray-100'} ${mode === 'pan' ? (isPanning ? 'cursor-grabbing' : 'cursor-grab') : (activeAreaId && isDrawing ? 'cursor-crosshair' : 'cursor-default')}`}
+        style={{ touchAction: 'none', clipPath: 'inset(0)', contain: 'paint' }}
         onMouseDown={handleMouseDown} onTouchStart={handleMouseDown}
         onMouseMove={handleMouseMove} onTouchMove={handleMouseMove}
         onMouseUp={handleMouseUp} onTouchEnd={handleMouseUp}
@@ -1256,23 +1284,15 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
             <div 
                 ref={containerRef}
                 style={{
-                    position: 'relative',
+                    position: 'absolute',
                     flexShrink: 0,
-                    transform: `translate(${pan.x}%, ${pan.y}%) scale(${zoom})`,
+                    width: `${imgDisplaySize.w}px`,
+                    height: `${imgDisplaySize.h}px`,
+                    transform: `translate(calc(-50% + ${pan.x}%), calc(-50% + ${pan.y}%)) scale(${zoom})`,
                     transformOrigin: 'center',
-                    transition: isPanning ? 'none' : 'transform 0.05s ease-out',
-                    aspectRatio: imgNativeSize ? `${imgNativeSize.w} / ${imgNativeSize.h}` : 'auto',
-                    ...(item.imageFit === 'fit' ? {
-                        width: '100%',
-                        height: 'auto',
-                        maxWidth: '100%',
-                        maxHeight: '100%',
-                    } : {
-                        width: 'auto',
-                        height: 'auto',
-                        minWidth: '100%',
-                        minHeight: '100%',
-                    })
+                    top: '50%',
+                    left: '50%',
+                    transition: isPanning ? 'none' : 'transform 0.05s ease-out'
                 }}
                 className="shadow-sm"
             >
@@ -1280,8 +1300,13 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
                   ref={imgRef}
                   src={optImg(item.image, 1600)} 
                   alt="Window view" 
-                  className="absolute inset-0 w-full h-full pointer-events-none block" 
-                  onLoad={e => setImgNativeSize({ w: e.target.naturalWidth, h: e.target.naturalHeight })} 
+                  style={{ width: '100%', height: '100%', display: 'block' }}
+                  className="absolute inset-0 pointer-events-none object-fill" 
+                  onLoad={e => {
+                      if (e.target.naturalWidth) {
+                          setImgNativeSize({ w: e.target.naturalWidth, h: e.target.naturalHeight });
+                      }
+                  }} 
               />
               
               <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none" style={{ top: 0, left: 0 }}>

@@ -97,7 +97,8 @@ const AutoFitText = ({ text, className }) => {
     }
 
     const handleBeforePrint = () => {
-        setTimeout(resizeText, 50); 
+        // อัปเดตขนาดตัวอักษรแบบซิงโครนัสทันทีที่กดพริ้นท์
+        resizeText(); 
     };
     window.addEventListener('beforeprint', handleBeforePrint);
 
@@ -327,7 +328,6 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
   const [type, setType] = useState('');
   const [localText, setLocalText] = useState({});
   const [isUploading, setIsUploading] = useState(false);
-  const [isUploadingBulk, setIsUploadingBulk] = useState(false);
   const [searchFabric, setSearchFabric] = useState('');
 
   useEffect(() => {
@@ -1023,16 +1023,35 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
           scale = Math.max(vw / natW, vh / natH);
       }
 
+      const newWidth = `${natW * scale}px`;
+      const newHeight = `${natH * scale}px`;
+
       setContainerStyle({
-          width: `${natW * scale}px`,
-          height: `${natH * scale}px`
+          width: newWidth,
+          height: newHeight
       });
+
+      // จัดการขนาดแบบซิงโครนัสเพื่อไม่ให้รอ State อัปเดตในตอนปรินท์
+      if (containerRef.current) {
+          containerRef.current.style.width = newWidth;
+          containerRef.current.style.height = newHeight;
+      }
     };
 
     updateSize();
     const ro = new ResizeObserver(updateSize);
     if (viewportRef.current) ro.observe(viewportRef.current);
-    return () => ro.disconnect();
+
+    const handleBeforePrint = () => {
+        // อัปเดตสัดส่วนให้ตรงกับกระดาษ A4 ในขณะนั้นแบบซิงโครนัส
+        updateSize();
+    };
+    window.addEventListener('beforeprint', handleBeforePrint);
+
+    return () => {
+        ro.disconnect();
+        window.removeEventListener('beforeprint', handleBeforePrint);
+    };
   }, [imgNativeSize, item.imageFit]);
 
   useEffect(() => {
@@ -1254,7 +1273,8 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
       <div 
         ref={viewportRef}
         className={`relative w-full flex-grow overflow-hidden ${item.imageFit === 'fit' ? 'bg-white' : 'bg-gray-100'} ${mode === 'pan' ? (isPanning ? 'cursor-grabbing' : 'cursor-grab') : (activeAreaId && isDrawing ? 'cursor-crosshair' : 'cursor-default')}`}
-        style={{ touchAction: 'none' }}
+        // เพิ่ม clipPath inset(0) และ contain paint ป้องกันกรอบทะลุตอนพริ้นท์
+        style={{ touchAction: 'none', clipPath: 'inset(0)', contain: 'paint' }}
         onMouseDown={handleMouseDown} onTouchStart={handleMouseDown}
         onMouseMove={handleMouseMove} onTouchMove={handleMouseMove}
         onMouseUp={handleMouseUp} onTouchEnd={handleMouseUp}
@@ -1675,7 +1695,6 @@ const App = () => {
           const canvas = document.createElement('canvas');
           let w = img.width;
           let h = img.height;
-          // บีบอัดขนาดโลโก้ลงมาเพื่อลดภาระ PDF
           if (h > 200) { w = Math.round(w * (200 / h)); h = 200; }
           canvas.width = w;
           canvas.height = h;

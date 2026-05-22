@@ -14,27 +14,20 @@ const defaultFirebaseConfig = {
   appId: "1:58897117944:web:3b7aa0417af8bc99a4010d"
 };
 
-// บังคับใช้ Config และ AppID เดิมเสมอ เพื่อป้องกันข้อมูลหายเมื่อ Environment เปลี่ยนแปลง
 const app = initializeApp(defaultFirebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const appId = "curtain-app-3d38a";
 
-// ---------------------------------------------------------
-// ☁️ CLOUDINARY UPLOAD SETTINGS
-// ---------------------------------------------------------
 const CLOUDINARY_URL = "https://api.cloudinary.com/v1_1/dsxpwfujb/image/upload";
 const CLOUDINARY_UPLOAD_PRESET = "ml_default"; 
 
-// --- NEW: ฟังก์ชันเพิ่มพารามิเตอร์บีบอัดรูปภาพให้เบาลงตอนทำ PDF ---
 const optImg = (url, width) => {
   if (!url || typeof url !== 'string' || !url.includes('cloudinary.com/')) return url;
-  if (url.includes('q_auto')) return url; // ป้องกันการใส่ซ้ำ
-  // ใช้ f_auto,q_auto เพื่อให้เซิร์ฟเวอร์แปลงเป็น WebP/JPEG คุณภาพบีบอัดสูง และ w_ เพื่อจำกัดขนาด
+  if (url.includes('q_auto')) return url; 
   return url.replace('/upload/', `/upload/f_auto,q_auto${width ? `,w_${width}` : ''}/`);
 };
 
-// --- SVGs for default fallback ---
 const SVGS = {
   style_default: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect x="10" y="10" width="80" height="80" fill="%23eee" stroke="%23333" stroke-width="2"/><text x="50" y="55" font-size="12" text-anchor="middle" fill="%23999">ไม่มีรูป</text></svg>',
 };
@@ -65,7 +58,6 @@ const DEFAULT_ACCOUNTS = [
   { id: '2', username: 'T65099', password: '65099', role: 'user', name: 'พนักงานทดสอบ', signatureUrl: '' }
 ];
 
-// --- Utility: AutoFit Text Component ---
 const AutoFitText = ({ text, className }) => {
   const containerRef = useRef(null);
   const textRef = useRef(null);
@@ -97,7 +89,6 @@ const AutoFitText = ({ text, className }) => {
     }
 
     const handleBeforePrint = () => {
-        // อัปเดตขนาดตัวอักษรแบบซิงโครนัสทันทีที่กดพริ้นท์
         resizeText(); 
     };
     window.addEventListener('beforeprint', handleBeforePrint);
@@ -124,7 +115,6 @@ const AutoFitText = ({ text, className }) => {
   );
 };
 
-// --- Utility: Alert/Confirm Dialog System ---
 const AlertDialog = ({ dialog, onClose }) => {
   if (!dialog) return null;
   return (
@@ -177,7 +167,6 @@ const removeWhiteBackground = (dataUrl) => {
       let w = img.width;
       let h = img.height;
       
-      // บีบอัดลายเซ็นต์ให้ไม่ใหญ่เกินไป เพื่อลดขนาดไฟล์ PDF
       if (h > 300) {
           w = Math.round(w * (300 / h));
           h = 300;
@@ -195,7 +184,7 @@ const removeWhiteBackground = (dataUrl) => {
         }
       }
       ctx.putImageData(imgData, 0, 0);
-      resolve(canvas.toDataURL('image/png')); // บันทึกเป็น PNG เพื่อเก็บความโปร่งใส
+      resolve(canvas.toDataURL('image/png'));
     };
     img.src = dataUrl;
   });
@@ -240,7 +229,6 @@ const processImageFile = async (file, maxWidth = 1024, quality = 0.7, setDialog)
         canvas.width = width; canvas.height = height;
         const ctx = canvas.getContext('2d');
         ctx.drawImage(img, 0, 0, width, height);
-        // แปลงเป็น webp คุณภาพ 70% ลดขนาดตั้งแต่ต้นทาง
         resolve(canvas.toDataURL('image/webp', quality)); 
       };
       img.onerror = () => {
@@ -254,7 +242,6 @@ const processImageFile = async (file, maxWidth = 1024, quality = 0.7, setDialog)
   });
 };
 
-// --- Component: Custom Project Fabric Modal ---
 const CustomFabricModal = ({ show, onClose, onAdd, setDialog }) => {
   if (!show) return null;
   const [loading, setLoading] = useState(false);
@@ -320,7 +307,6 @@ const CustomFabricModal = ({ show, onClose, onAdd, setDialog }) => {
   );
 };
 
-// --- Component: Database Settings Modal ---
 const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, saveAppDB, setDialog, setBgUploadQueue }) => {
   if (!showDBSettings) return null;
   const [activeTab, setActiveTab] = useState('fabrics');
@@ -1004,55 +990,8 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
   const containerRef = useRef(null);
   const wrapperRef = useRef(null);
   const viewportRef = useRef(null);
+  const imgRef = useRef(null);
   const [imgNativeSize, setImgNativeSize] = useState(null);
-  const [containerStyle, setContainerStyle] = useState({ width: '100%', height: '100%' });
-
-  useEffect(() => {
-    const updateSize = () => {
-      if (!viewportRef.current || !imgNativeSize) return;
-      const vw = viewportRef.current.clientWidth;
-      const vh = viewportRef.current.clientHeight;
-      const { w: natW, h: natH } = imgNativeSize;
-      
-      if (natW === 0 || natH === 0) return;
-
-      let scale;
-      if (item.imageFit === 'fit') {
-          scale = Math.min(vw / natW, vh / natH);
-      } else {
-          scale = Math.max(vw / natW, vh / natH);
-      }
-
-      const newWidth = `${natW * scale}px`;
-      const newHeight = `${natH * scale}px`;
-
-      setContainerStyle({
-          width: newWidth,
-          height: newHeight
-      });
-
-      // จัดการขนาดแบบซิงโครนัสเพื่อไม่ให้รอ State อัปเดตในตอนปรินท์
-      if (containerRef.current) {
-          containerRef.current.style.width = newWidth;
-          containerRef.current.style.height = newHeight;
-      }
-    };
-
-    updateSize();
-    const ro = new ResizeObserver(updateSize);
-    if (viewportRef.current) ro.observe(viewportRef.current);
-
-    const handleBeforePrint = () => {
-        // อัปเดตสัดส่วนให้ตรงกับกระดาษ A4 ในขณะนั้นแบบซิงโครนัส
-        updateSize();
-    };
-    window.addEventListener('beforeprint', handleBeforePrint);
-
-    return () => {
-        ro.disconnect();
-        window.removeEventListener('beforeprint', handleBeforePrint);
-    };
-  }, [imgNativeSize, item.imageFit]);
 
   useEffect(() => {
     const el = viewportRef.current;
@@ -1083,24 +1022,42 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isDrawing, activeAreaId, item.areas, item.id, handleItemChange]);
 
+  const getPctFromEvent = (e) => {
+      if (!containerRef.current || !imgNativeSize) return null;
+      
+      let clientX, clientY;
+      if (e.touches && e.touches.length > 0) {
+        clientX = e.touches[0].clientX;
+        clientY = e.touches[0].clientY;
+      } else {
+        clientX = e.clientX;
+        clientY = e.clientY;
+      }
+      
+      const rect = containerRef.current.getBoundingClientRect();
+      const xInImg = (clientX - rect.left) / rect.width;
+      const yInImg = (clientY - rect.top) / rect.height;
+
+      const xPct = Math.max(0, Math.min(100, xInImg * 100));
+      const yPct = Math.max(0, Math.min(100, yInImg * 100));
+
+      return { xPct, yPct };
+  };
+
   useEffect(() => {
     const handleGlobalPointMove = (e) => {
-      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-      if (pointDrag && containerRef.current) {
-        const rect = containerRef.current.getBoundingClientRect();
-        const xPct = Math.max(0, Math.min(100, ((clientX - rect.left) / rect.width) * 100));
-        const yPct = Math.max(0, Math.min(100, ((clientY - rect.top) / rect.height) * 100));
+      if (!pointDrag) return;
+      const pos = getPctFromEvent(e);
+      if (!pos) return;
 
-        handleItemChange(item.id, 'areas', item.areas.map(a => {
-          if (a.id === pointDrag.areaId) {
-            const newPts = [...a.points];
-            newPts[pointDrag.pIdx] = { x: xPct, y: yPct };
-            return { ...a, points: newPts };
-          }
-          return a;
-        }));
-      }
+      handleItemChange(item.id, 'areas', item.areas.map(a => {
+        if (a.id === pointDrag.areaId) {
+          const newPts = [...a.points];
+          newPts[pointDrag.pIdx] = { x: pos.xPct, y: pos.yPct };
+          return { ...a, points: newPts };
+        }
+        return a;
+      }));
     };
     const handleGlobalPointUp = () => setPointDrag(null);
 
@@ -1116,7 +1073,7 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
       window.removeEventListener('mouseup', handleGlobalPointUp);
       window.removeEventListener('touchmove', handleGlobalPointUp);
     }
-  }, [pointDrag, zoom, item.areas, item.id]);
+  }, [pointDrag, zoom, pan, item.imageFit, imgNativeSize, item.areas, item.id]);
 
   useEffect(() => {
     const handleGlobalPanelMove = (e) => {
@@ -1186,28 +1143,41 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
   };
 
   const handleMouseDown = (e) => { 
-    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-    if (mode === 'pan') setIsPanning({ x: clientX - pan.x, y: clientY - pan.y }); 
+    let clientX = e.touches && e.touches.length > 0 ? e.touches[0].clientX : e.clientX;
+    let clientY = e.touches && e.touches.length > 0 ? e.touches[0].clientY : e.clientY;
+    if (mode === 'pan') {
+       setIsPanning({ startX: clientX, startY: clientY, startPanX: pan.x, startPanY: pan.y });
+    }
   };
 
   const handleMouseMove = (e) => {
-    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    let clientX = e.touches && e.touches.length > 0 ? e.touches[0].clientX : e.clientX;
+    let clientY = e.touches && e.touches.length > 0 ? e.touches[0].clientY : e.clientY;
+    
     if (mode === 'pan' && isPanning) { 
         if (e.cancelable) e.preventDefault();
-        setPan({ x: clientX - isPanning.x, y: clientY - isPanning.y }); 
+        
+        const dx = clientX - isPanning.startX;
+        const dy = clientY - isPanning.startY;
+        
+        if (containerRef.current) {
+            const rect = containerRef.current.getBoundingClientRect();
+            const panX = isPanning.startPanX + (dx / rect.width) * 100;
+            const panY = isPanning.startPanY + (dy / rect.height) * 100;
+            setPan({ x: panX, y: panY }); 
+        }
         return; 
     }
+    
     if (mode === 'draw' && activeAreaId && isDrawing) {
         if (e.cancelable) e.preventDefault();
     }
-    if (containerRef.current) {
-      const rect = containerRef.current.getBoundingClientRect();
-      const xPct = Math.max(0, Math.min(100, ((clientX - rect.left) / rect.width) * 100));
-      const yPct = Math.max(0, Math.min(100, ((clientY - rect.top) / rect.height) * 100));
-      if (mode === 'draw' && activeAreaId && isDrawing && !pointDrag && !isPanning) setCursorPos({ x: xPct, y: yPct });
-      else setCursorPos(null);
+    
+    if (mode === 'draw' && activeAreaId && isDrawing && !pointDrag && !isPanning) {
+        const pos = getPctFromEvent(e);
+        if (pos) setCursorPos({ x: pos.xPct, y: pos.yPct });
+    } else {
+        setCursorPos(null);
     }
   };
 
@@ -1217,20 +1187,15 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
   const handleContentClick = (e) => {
     if (mode !== 'draw' || !activeAreaId || !isDrawing || pointDrag || isPanning || draggingPanel) return;
     
-    const clientX = e.clientX || (e.touches && e.touches[0] ? e.touches[0].clientX : 0);
-    const clientY = e.clientY || (e.touches && e.touches[0] ? e.touches[0].clientY : 0);
-    if(!clientX && !clientY) return;
-
-    const rect = containerRef.current.getBoundingClientRect();
-    const xPct = Math.max(0, Math.min(100, ((clientX - rect.left) / rect.width) * 100));
-    const yPct = Math.max(0, Math.min(100, ((clientY - rect.top) / rect.height) * 100));
+    const pos = getPctFromEvent(e);
+    if (!pos) return;
 
     const area = item.areas.find(a => a.id === activeAreaId);
     if (area && area.points.length > 0) {
       const lastPt = area.points[area.points.length - 1];
-      if (Math.hypot(lastPt.x - xPct, lastPt.y - yPct) < 1) return; 
+      if (Math.hypot(lastPt.x - pos.xPct, lastPt.y - pos.yPct) < 1) return; 
     }
-    handleItemChange(item.id, 'areas', item.areas.map(a => a.id === activeAreaId ? { ...a, points: [...a.points, { x: xPct, y: yPct }] } : a));
+    handleItemChange(item.id, 'areas', item.areas.map(a => a.id === activeAreaId ? { ...a, points: [...a.points, { x: pos.xPct, y: pos.yPct }] } : a));
   };
 
   const handlePointMouseDown = (e, areaId, pIdx) => { 
@@ -1273,8 +1238,14 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
       <div 
         ref={viewportRef}
         className={`relative w-full flex-grow overflow-hidden ${item.imageFit === 'fit' ? 'bg-white' : 'bg-gray-100'} ${mode === 'pan' ? (isPanning ? 'cursor-grabbing' : 'cursor-grab') : (activeAreaId && isDrawing ? 'cursor-crosshair' : 'cursor-default')}`}
-        // เพิ่ม clipPath inset(0) และ contain paint ป้องกันกรอบทะลุตอนพริ้นท์
-        style={{ touchAction: 'none', clipPath: 'inset(0)', contain: 'paint' }}
+        style={{ 
+            touchAction: 'none', 
+            clipPath: 'inset(0)', 
+            contain: 'paint',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center'
+        }}
         onMouseDown={handleMouseDown} onTouchStart={handleMouseDown}
         onMouseMove={handleMouseMove} onTouchMove={handleMouseMove}
         onMouseUp={handleMouseUp} onTouchEnd={handleMouseUp}
@@ -1285,20 +1256,31 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
             <div 
                 ref={containerRef}
                 style={{
-                    width: containerStyle.width,
-                    height: containerStyle.height,
-                    transform: `translate(calc(-50% + ${pan.x}px), calc(-50% + ${pan.y}px)) scale(${zoom})`,
+                    position: 'relative',
+                    flexShrink: 0,
+                    transform: `translate(${pan.x}%, ${pan.y}%) scale(${zoom})`,
                     transformOrigin: 'center',
-                    position: 'absolute',
-                    top: '50%',
-                    left: '50%',
+                    transition: isPanning ? 'none' : 'transform 0.05s ease-out',
+                    aspectRatio: imgNativeSize ? `${imgNativeSize.w} / ${imgNativeSize.h}` : 'auto',
+                    ...(item.imageFit === 'fit' ? {
+                        width: '100%',
+                        height: 'auto',
+                        maxWidth: '100%',
+                        maxHeight: '100%',
+                    } : {
+                        width: 'auto',
+                        height: 'auto',
+                        minWidth: '100%',
+                        minHeight: '100%',
+                    })
                 }}
-                className="transition-transform duration-75 ease-out shadow-sm"
+                className="shadow-sm"
             >
               <img 
+                  ref={imgRef}
                   src={optImg(item.image, 1600)} 
                   alt="Window view" 
-                  className="absolute inset-0 w-full h-full pointer-events-none block object-fill" 
+                  className="absolute inset-0 w-full h-full pointer-events-none block" 
                   onLoad={e => setImgNativeSize({ w: e.target.naturalWidth, h: e.target.naturalHeight })} 
               />
               
@@ -1981,7 +1963,6 @@ const App = () => {
     historyRef.current = [];
     historyIndexRef.current = -1;
 
-    // อัปเดตเงื่อนไขข้อ D อัตโนมัติสำหรับใบงานเก่า
     let loadedTerms = proj.generalInfo?.terms || defaultTerms;
     if (!loadedTerms.includes('(D) สีสินค้าจริง')) {
         if (loadedTerms.includes('(C) ค่าเดินทาง 1,500 บาท ใน กทม. (ต่างจังหวัดคิดตามระยะทาง)')) {
@@ -2510,7 +2491,7 @@ const App = () => {
                     <div className="w-full lg:w-[70%] print:w-[70%] min-h-[400px] h-[50vh] sm:h-[60vh] lg:h-full print:h-full border-b lg:border-b-0 print:border-b-0 lg:border-r print:border-r border-gray-300 flex flex-col bg-white relative z-20">
                       
                       <div className="flex-1 w-full border-b border-gray-300 flex flex-col relative bg-gray-100 shrink-0 overflow-hidden">
-                        <ImageAreaEditor item={item} appDB={appDB} handleItemChange={handleItemChange} setDialog={setDialog} idPrefix="print" />
+                        <ImageAreaEditor item={item} appDB={appDB} handleItemChange={handleItemChange} setDialog={setDialog} idPrefix={`print-${index}`} />
                       </div>
                       
                       <div className="h-[25%] lg:h-[30%] print:h-[30%] min-h-[100px] w-full p-2 bg-gray-50 flex items-center overflow-x-auto">
@@ -2519,7 +2500,7 @@ const App = () => {
                           <div className="flex flex-col items-center bg-white border border-gray-200 p-1.5 sm:p-2 rounded shadow-sm h-full justify-between overflow-hidden">
                             <span className="text-[11px] sm:text-[13px] font-bold text-gray-800 w-full text-center mb-1 sm:mb-2 shrink-0">รูปแบบม่าน</span>
                             <div className="flex-1 w-full bg-gray-50 border border-gray-100 flex items-center justify-center rounded overflow-hidden p-0 relative mb-1 sm:mb-2">
-                              {styleImg1 ? <img src={optImg(styleImg1, 400)} className="w-full h-full object-cover" /> : <div dangerouslySetInnerHTML={{__html: SVGS.th}} className="w-full h-full" />}
+                              {styleImg1 ? <img src={optImg(styleImg1, 400)} className="w-full h-full object-cover" /> : <div dangerouslySetInnerHTML={{__html: SVGS.style_default}} className="w-full h-full" />}
                             </div>
                             <AutoFitText text={`${sMain1 || '-'} ${item.layers === 2 ? `/ ${sMain2 || '-'}` : ''}`} className="text-blue-800 print:text-black" />
                           </div>

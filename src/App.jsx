@@ -4,6 +4,7 @@ import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, doc, setDoc, getDoc, collection, getDocs, deleteDoc, onSnapshot } from 'firebase/firestore';
 
+// --- Firebase Initialization (Online Sync) ---
 const defaultFirebaseConfig = {
   apiKey: "AIzaSyCRM9SXoU2IWM0olulbyfAF2oeeGyJsygY",
   authDomain: "curtain-app-3d38a.firebaseapp.com",
@@ -18,6 +19,9 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 const appId = "curtain-app-3d38a";
 
+// ---------------------------------------------------------
+// ☁️ CLOUDINARY UPLOAD SETTINGS
+// ---------------------------------------------------------
 const CLOUDINARY_URL = "https://api.cloudinary.com/v1_1/dsxpwfujb/image/upload";
 const CLOUDINARY_UPLOAD_PRESET = "ml_default"; 
 
@@ -165,7 +169,11 @@ const removeWhiteBackground = (dataUrl) => {
       const canvas = document.createElement('canvas');
       let w = img.width;
       let h = img.height;
-      if (h > 300) { w = Math.round(w * (300 / h)); h = 300; }
+      
+      if (h > 300) {
+          w = Math.round(w * (300 / h));
+          h = 300;
+      }
       
       canvas.width = w;
       canvas.height = h;
@@ -198,6 +206,7 @@ const loadHeic2Any = async () => {
 
 const processImageFile = async (file, maxWidth = 1024, quality = 0.7, setDialog) => {
   let processFile = file;
+  
   if (file.name.toLowerCase().match(/\.(heic|heif)$/i)) {
     try {
       const heic2any = await loadHeic2Any();
@@ -249,6 +258,7 @@ const CustomFabricModal = ({ show, onClose, onAdd, setDialog }) => {
     if(!subType || !name || !color || !f) {
       return setDialog({ type: 'alert', message: 'กรุณากรอกข้อมูลและเลือกรูปภาพให้ครบถ้วน' });
     }
+    
     setLoading(true);
     const compressed = await processImageFile(f, 400, 0.7, setDialog);
     if (compressed) {
@@ -628,6 +638,7 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
                        <button onClick={addFabricItem} disabled={isUploading} className={`bg-indigo-600 text-white py-1.5 rounded text-sm font-bold mt-1 ${isUploading ? 'opacity-50' : 'hover:bg-indigo-700'}`}>บันทึกรายการผ้า</button>
                     </div>
 
+                    {/* --- BULK UPLOAD FOLDER SECTION --- */}
                     <div className="bg-indigo-50 p-3 border border-indigo-200 rounded shadow-sm flex flex-col gap-2 mt-2">
                        <span className="text-sm font-bold text-indigo-800">เพิ่มรายการแบบกลุ่ม (เข้าคิวทำงานเบื้องหลัง)</span>
                        <p className="text-[11px] text-gray-600 leading-tight">
@@ -983,56 +994,54 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
   const wrapperRef = useRef(null);
   const viewportRef = useRef(null);
   const imgRef = useRef(null);
-  
-  const [imgDisplaySize, setImgDisplaySize] = useState({ w: '100%', h: '100%' });
   const [imgNativeSize, setImgNativeSize] = useState(null);
 
+  // คำนวณขนาดภาพ (PX) ให้พอดีกรอบอย่างแม่นยำ โดยรักษา Aspect Ratio เสมอ
   useEffect(() => {
     const updateSize = () => {
-      if (!viewportRef.current || !imgNativeSize) return;
-      const vw = viewportRef.current.clientWidth;
-      const vh = viewportRef.current.clientHeight;
+      if (!viewportRef.current || !containerRef.current || !imgNativeSize) return;
+      const vw = viewportRef.current.offsetWidth;
+      const vh = viewportRef.current.offsetHeight;
       const { w: natW, h: natH } = imgNativeSize;
       
-      if (natW === 0 || natH === 0) return;
+      if (natW === 0 || natH === 0 || vw === 0 || vh === 0) return;
 
       const ri = natW / natH;
       const rc = vw / vh;
 
-      let rw, rh;
-      if (item.imageFit === 'fill') { 
+      let finalW, finalH;
+      if (item.imageFit === 'fill') {
           if (ri > rc) {
-              rh = vh;
-              rw = vh * ri;
+              finalH = vh;
+              finalW = vh * ri;
           } else {
-              rw = vw;
-              rh = vw / ri;
+              finalW = vw;
+              finalH = vw / ri;
           }
-      } else { 
+      } else { // fit
           if (ri > rc) {
-              rw = vw;
-              rh = vw / ri;
+              finalW = vw;
+              finalH = vw / ri;
           } else {
-              rh = vh;
-              rw = vh * ri;
+              finalH = vh;
+              finalW = vh * ri;
           }
       }
 
-      setImgDisplaySize({ w: rw, h: rh });
+      containerRef.current.style.width = `${finalW}px`;
+      containerRef.current.style.height = `${finalH}px`;
     };
 
     updateSize();
     const ro = new ResizeObserver(updateSize);
     if (viewportRef.current) ro.observe(viewportRef.current);
-    
-    window.addEventListener('resize', updateSize);
-    const beforePrint = () => updateSize();
-    window.addEventListener('beforeprint', beforePrint);
+
+    const handleBeforePrint = () => updateSize();
+    window.addEventListener('beforeprint', handleBeforePrint);
 
     return () => {
         ro.disconnect();
-        window.removeEventListener('resize', updateSize);
-        window.removeEventListener('beforeprint', beforePrint);
+        window.removeEventListener('beforeprint', handleBeforePrint);
     };
   }, [imgNativeSize, item.imageFit]);
 
@@ -1111,9 +1120,8 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
   useEffect(() => {
     const handleGlobalPanelMove = (e) => {
       if (draggingPanel && wrapperRef.current) {
-        let clientX = e.touches && e.touches.length > 0 ? e.touches[0].clientX : e.clientX;
-        let clientY = e.touches && e.touches.length > 0 ? e.touches[0].clientY : e.clientY;
-
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
         const rect = wrapperRef.current.getBoundingClientRect();
         let newX = clientX - rect.left - panelDragStart.x;
         let newY = clientY - rect.top - panelDragStart.y;
@@ -1141,8 +1149,8 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
   const onPanelMouseDown = (e) => {
     e.stopPropagation();
     if (wrapperRef.current) {
-      let clientX = e.touches && e.touches.length > 0 ? e.touches[0].clientX : e.clientX;
-      let clientY = e.touches && e.touches.length > 0 ? e.touches[0].clientY : e.clientY;
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
       const rect = wrapperRef.current.getBoundingClientRect();
       setDraggingPanel(true);
       setPanelDragStart({ x: clientX - rect.left - panelPos.x, y: clientY - rect.top - panelPos.y });
@@ -1281,264 +1289,267 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
       >
         {item.image ? (
           <>
-            <div 
-                ref={containerRef}
-                style={{
-                    position: 'absolute',
-                    flexShrink: 0,
-                    width: `${imgDisplaySize.w}px`,
-                    height: `${imgDisplaySize.h}px`,
-                    transform: `translate(calc(-50% + ${pan.x}%), calc(-50% + ${pan.y}%)) scale(${zoom})`,
-                    transformOrigin: 'center',
-                    top: '50%',
-                    left: '50%',
-                    transition: isPanning ? 'none' : 'transform 0.05s ease-out'
-                }}
-                className="shadow-sm"
+            <div
+              style={{
+                 position: 'absolute',
+                 inset: 0,
+                 display: 'flex',
+                 alignItems: 'center',
+                 justifyContent: 'center',
+                 transform: `translate(${pan.x}%, ${pan.y}%) scale(${zoom})`,
+                 transformOrigin: 'center',
+                 transition: isPanning ? 'none' : 'transform 0.05s ease-out'
+              }}
             >
-              <img 
-                  ref={imgRef}
-                  src={optImg(item.image, 1600)} 
-                  alt="Window view" 
-                  style={{ width: '100%', height: '100%', display: 'block' }}
-                  className="absolute inset-0 pointer-events-none object-fill" 
-                  onLoad={e => {
-                      if (e.target.naturalWidth) {
-                          setImgNativeSize({ w: e.target.naturalWidth, h: e.target.naturalHeight });
-                      }
-                  }} 
-              />
-              
-              <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none" style={{ top: 0, left: 0 }}>
-                <defs>
-                  {item.areas.map(area => {
+              <div 
+                  ref={containerRef}
+                  style={{
+                      position: 'relative',
+                      flexShrink: 0
+                      // Width and Height are dynamically injected by Javascript updateSize() perfectly.
+                  }}
+                  className="shadow-sm"
+              >
+                <img 
+                    ref={imgRef}
+                    src={optImg(item.image, 1600)} 
+                    alt="Window view" 
+                    style={{ width: '100%', height: '100%', display: 'block' }}
+                    className="absolute inset-0 pointer-events-none" 
+                    onLoad={e => setImgNativeSize({ w: e.target.naturalWidth, h: e.target.naturalHeight })} 
+                />
+                
+                <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none" style={{ top: 0, left: 0 }}>
+                  <defs>
+                    {item.areas.map(area => {
+                        const clipId = `clip-${idPrefix}-${item.id}-${area.id}`;
+                        return (
+                          <clipPath key={clipId} id={clipId}>
+                            <polygon points={area.points.map(p => `${p.x},${p.y}`).join(' ')} />
+                          </clipPath>
+                        )
+                      })}
+                    </defs>
+
+                    {item.areas.map((area, idx) => {
+                      if(area.points.length < 3) return null;
+                      const minX = Math.min(...area.points.map(p=>p.x));
+                      const maxX = Math.max(...area.points.map(p=>p.x));
+                      const minY = Math.min(...area.points.map(p=>p.y));
+                      const maxY = Math.max(...area.points.map(p=>p.y));
+                      const w = maxX - minX;
+                      const h = maxY - minY;
                       const clipId = `clip-${idPrefix}-${item.id}-${area.id}`;
-                      return (
-                        <clipPath key={clipId} id={clipId}>
-                          <polygon points={area.points.map(p => `${p.x},${p.y}`).join(' ')} />
-                        </clipPath>
-                      )
-                    })}
-                  </defs>
+                      
+                      const styleMain1 = area.styleMain1 || item.styleMain1 || item.styleMain || '';
+                      const autoMaskType = styleMain1.match(/ม่านม้วน|ม่านพับ|มู่ลี่|ม่านปรับแสง/) ? 'height' : 'width';
+                      const maskType = area.maskType || autoMaskType;
+                      const mPct = (area.maskPct || 20) / 100;
+                      const maskOpacity = (area.maskOpacity ?? 87) / 100;
+                      
+                      const action = area.styleAction1 || item.styleAction1 || item.styleAction || '';
+                      const masks = appDB.masks?.[styleMain1] || {};
+                      const maskImgFallback = masks[action] || masks['ALL'] || Object.values(masks)[0];
+                      let maskElements = [];
+                      
+                      const dist = (p1, p2) => Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
+                      
+                      if (maskImgFallback) {
+                        if (maskType === 'height') {
+                          let isQuad = area.points.length === 4;
+                          let TL, TR, BL, BR;
+                          if (isQuad) {
+                            let sortedY = [...area.points].sort((a, b) => a.y - b.y);
+                            let top2 = sortedY.slice(0, 2).sort((a, b) => a.x - b.x);
+                            let bot2 = sortedY.slice(2, 4).sort((a, b) => a.x - b.x);
+                            TL = top2[0]; TR = top2[1]; BL = bot2[0]; BR = bot2[1];
+                          } else {
+                            TL = {x: minX, y: minY}; TR = {x: maxX, y: minY};
+                            BL = {x: minX, y: maxY}; BR = {x: maxX, y: maxY};
+                          }
 
-                  {item.areas.map((area, idx) => {
-                    if(area.points.length < 3) return null;
-                    const minX = Math.min(...area.points.map(p=>p.x));
-                    const maxX = Math.max(...area.points.map(p=>p.x));
-                    const minY = Math.min(...area.points.map(p=>p.y));
-                    const maxY = Math.max(...area.points.map(p=>p.y));
-                    const w = maxX - minX;
-                    const h = maxY - minY;
-                    const clipId = `clip-${idPrefix}-${item.id}-${area.id}`;
-                    
-                    const styleMain1 = area.styleMain1 || item.styleMain1 || item.styleMain || '';
-                    const autoMaskType = styleMain1.match(/ม่านม้วน|ม่านพับ|มู่ลี่|ม่านปรับแสง/) ? 'height' : 'width';
-                    const maskType = area.maskType || autoMaskType;
-                    const mPct = (area.maskPct || 20) / 100;
-                    const maskOpacity = (area.maskOpacity ?? 87) / 100;
-                    
-                    const action = area.styleAction1 || item.styleAction1 || item.styleAction || '';
-                    const masks = appDB.masks?.[styleMain1] || {};
-                    const maskImgFallback = masks[action] || masks['ALL'] || Object.values(masks)[0];
-                    let maskElements = [];
-                    
-                    const dist = (p1, p2) => Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
-                    
-                    if (maskImgFallback) {
-                      if (maskType === 'height') {
-                        let isQuad = area.points.length === 4;
-                        let TL, TR, BL, BR;
-                        if (isQuad) {
-                          let sortedY = [...area.points].sort((a, b) => a.y - b.y);
-                          let top2 = sortedY.slice(0, 2).sort((a, b) => a.x - b.x);
-                          let bot2 = sortedY.slice(2, 4).sort((a, b) => a.x - b.x);
-                          TL = top2[0]; TR = top2[1]; BL = bot2[0]; BR = bot2[1];
-                        } else {
-                          TL = {x: minX, y: minY}; TR = {x: maxX, y: minY};
-                          BL = {x: minX, y: maxY}; BR = {x: maxX, y: maxY};
-                        }
+                          let dropL = { x: TL.x + (BL.x - TL.x) * mPct, y: TL.y + (BL.y - TL.y) * mPct };
+                          let dropR = { x: TR.x + (BR.x - TR.x) * mPct, y: TR.y + (BR.y - TR.y) * mPct };
 
-                        let dropL = { x: TL.x + (BL.x - TL.x) * mPct, y: TL.y + (BL.y - TL.y) * mPct };
-                        let dropR = { x: TR.x + (BR.x - TR.x) * mPct, y: TR.y + (BR.y - TR.y) * mPct };
+                          let clipPoly = `${TL.x},${TL.y} ${TR.x},${TR.y} ${dropR.x},${dropR.y} ${dropL.x},${dropL.y}`;
+                          let clipIdAct = `${clipId}-height-act`;
 
-                        let clipPoly = `${TL.x},${TL.y} ${TR.x},${TR.y} ${dropR.x},${dropR.y} ${dropL.x},${dropL.y}`;
-                        let clipIdAct = `${clipId}-height-act`;
+                          let W = Math.max(0.1, dist(TL, TR));
+                          let H = Math.max(0.1, dist(TL, dropL));
 
-                        let W = Math.max(0.1, dist(TL, TR));
-                        let H = Math.max(0.1, dist(TL, dropL));
+                          let u_x = (TR.x - TL.x) / W;
+                          let u_y = (TR.y - TL.y) / W;
+                          let v_x = (dropL.x - TL.x) / H;
+                          let v_y = (dropL.y - TL.y) / H;
 
-                        let u_x = (TR.x - TL.x) / W;
-                        let u_y = (TR.y - TL.y) / W;
-                        let v_x = (dropL.x - TL.x) / H;
-                        let v_y = (dropL.y - TL.y) / H;
+                          let D = u_x * v_y - u_y * v_x;
+                          let imgW = W;
+                          let imgH = H;
 
-                        let D = u_x * v_y - u_y * v_x;
-                        let imgW = W;
-                        let imgH = H;
+                          if (Math.abs(D) > 1e-6) {
+                            let dx = dropR.x - TL.x;
+                            let dy = dropR.y - TL.y;
+                            let x_R = (dx * v_y - dy * v_x) / D;
+                            let y_R = (u_x * dy - u_y * dx) / D;
+                            imgW = Math.max(W, x_R);
+                            imgH = Math.max(H, y_R);
+                          }
 
-                        if (Math.abs(D) > 1e-6) {
-                          let dx = dropR.x - TL.x;
-                          let dy = dropR.y - TL.y;
-                          let x_R = (dx * v_y - dy * v_x) / D;
-                          let y_R = (u_x * dy - u_y * dx) / D;
-                          imgW = Math.max(W, x_R);
-                          imgH = Math.max(H, y_R);
-                        }
-
-                        maskElements.push(
-                          <React.Fragment key="T">
-                            <clipPath id={clipIdAct}><polygon points={clipPoly} /></clipPath>
-                            <g clipPath={`url(#${clipIdAct})`}>
-                              <image 
-                                href={optImg(maskImgFallback, 800)} 
-                                x="0" y="0" 
-                                width={imgW} height={imgH} 
-                                preserveAspectRatio="none" 
-                                opacity={maskOpacity}
-                                transform={area.points.length === 4 ? `matrix(${u_x} ${u_y} ${v_x} ${v_y} ${TL.x} ${TL.y})` : `translate(${TL.x}, ${TL.y})`}
-                              />
-                            </g>
-                          </React.Fragment>
-                        );
-                      } else {
-                        if (action.includes('แยกกลาง')) {
-                          const leftImg = masks['รวบซ้าย'] || maskImgFallback;
-                          const rightImg = masks['รวบขวา'] || maskImgFallback;
                           maskElements.push(
-                            <g key="W" clipPath={`url(#${clipId})`}>
-                              <image href={optImg(leftImg, 800)} x={minX} y={minY} width={w * mPct} height={h} preserveAspectRatio="none" opacity={maskOpacity} />
-                              <image href={optImg(rightImg, 800)} x={maxX - (w * mPct)} y={minY} width={w * mPct} height={h} preserveAspectRatio="none" opacity={maskOpacity} />
-                            </g>
-                          );
-                        } else if (action.includes('ขวา')) {
-                          const rightImg = masks['รวบขวา'] || masks[action] || maskImgFallback;
-                          maskElements.push(
-                            <g key="R" clipPath={`url(#${clipId})`}>
-                              <image href={optImg(rightImg, 800)} x={maxX - (w * mPct)} y={minY} width={w * mPct} height={h} preserveAspectRatio="none" opacity={maskOpacity} />
-                            </g>
+                            <React.Fragment key="T">
+                              <clipPath id={clipIdAct}><polygon points={clipPoly} /></clipPath>
+                              <g clipPath={`url(#${clipIdAct})`}>
+                                <image 
+                                  href={optImg(maskImgFallback, 800)} 
+                                  x="0" y="0" 
+                                  width={imgW} height={imgH} 
+                                  preserveAspectRatio="none" 
+                                  opacity={maskOpacity}
+                                  transform={area.points.length === 4 ? `matrix(${u_x} ${u_y} ${v_x} ${v_y} ${TL.x} ${TL.y})` : `translate(${TL.x}, ${TL.y})`}
+                                />
+                              </g>
+                            </React.Fragment>
                           );
                         } else {
-                          const leftImg = masks['รวบซ้าย'] || masks[action] || maskImgFallback;
-                          maskElements.push(
-                            <g key="L" clipPath={`url(#${clipId})`}>
-                              <image href={optImg(leftImg, 800)} x={minX} y={minY} width={w * mPct} height={h} preserveAspectRatio="none" opacity={maskOpacity} />
-                            </g>
-                          );
+                          if (action.includes('แยกกลาง')) {
+                            const leftImg = masks['รวบซ้าย'] || maskImgFallback;
+                            const rightImg = masks['รวบขวา'] || maskImgFallback;
+                            maskElements.push(
+                              <g key="W" clipPath={`url(#${clipId})`}>
+                                <image href={optImg(leftImg, 800)} x={minX} y={minY} width={w * mPct} height={h} preserveAspectRatio="none" opacity={maskOpacity} />
+                                <image href={optImg(rightImg, 800)} x={maxX - (w * mPct)} y={minY} width={w * mPct} height={h} preserveAspectRatio="none" opacity={maskOpacity} />
+                              </g>
+                            );
+                          } else if (action.includes('ขวา')) {
+                            const rightImg = masks['รวบขวา'] || masks[action] || maskImgFallback;
+                            maskElements.push(
+                              <g key="R" clipPath={`url(#${clipId})`}>
+                                <image href={optImg(rightImg, 800)} x={maxX - (w * mPct)} y={minY} width={w * mPct} height={h} preserveAspectRatio="none" opacity={maskOpacity} />
+                              </g>
+                            );
+                          } else {
+                            const leftImg = masks['รวบซ้าย'] || masks[action] || maskImgFallback;
+                            maskElements.push(
+                              <g key="L" clipPath={`url(#${clipId})`}>
+                                <image href={optImg(leftImg, 800)} x={minX} y={minY} width={w * mPct} height={h} preserveAspectRatio="none" opacity={maskOpacity} />
+                              </g>
+                            );
+                          }
                         }
                       }
-                    }
 
+                      return (
+                        <g key={`fill-group-${area.id}`}>
+                          <polygon points={area.points.map(p => `${p.x},${p.y}`).join(' ')} fill={area.lineColor} fillOpacity={0.15} stroke="none" />
+                          {maskElements}
+                        </g>
+                      );
+                    })}
+                    {mode === 'draw' && activeAreaId && isDrawing && !pointDrag && cursorPos && activeArea && activeArea.points.length > 0 && (
+                      <polygon points={[...activeArea.points, cursorPos].map(p => `${p.x},${p.y}`).join(' ')} fill={activeArea.lineColor} fillOpacity={0.1} stroke="none" />
+                    )}
+                </svg>
+
+                <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ top: 0, left: 0 }}>
+                  {item.areas.map(area => {
+                    const isActive = activeAreaId === area.id;
                     return (
-                      <g key={`fill-group-${area.id}`}>
-                        <polygon points={area.points.map(p => `${p.x},${p.y}`).join(' ')} fill={area.lineColor} fillOpacity={0.15} stroke="none" />
-                        {maskElements}
+                      <g key={area.id}>
+                        {area.points.map((p, idx) => {
+                          const isLast = idx === area.points.length - 1;
+                          const nextP = isLast ? area.points[0] : area.points[idx + 1];
+                          if (mode === 'draw' && isActive && isDrawing && isLast && !pointDrag) return null;
+                          if (area.points.length < 2) return null;
+                          return (
+                            <line key={`line-${idx}`} x1={`${p.x}%`} y1={`${p.y}%`} x2={`${nextP.x}%`} y2={`${nextP.y}%`} stroke={area.lineColor} strokeWidth={area.lineWidth / zoom} strokeDasharray={isActive && !pointDrag && isDrawing ? "4 4" : "0"} className={isActive && !pointDrag && isDrawing ? "animate-pulse" : ""} style={{ pointerEvents: 'none' }} />
+                          );
+                        })}
+                        {area.points.map((p, idx) => {
+                          const isFirstPoint = idx === 0;
+                          const isCurrentlyDrawing = mode === 'draw' && isActive && isDrawing;
+                          const isHighlight = isCurrentlyDrawing && isFirstPoint && area.points.length >= 2;
+                          const circleRadius = isHighlight ? 8/zoom : 4/zoom;
+                          
+                          return (
+                            <g key={idx} className="cursor-move" style={{ pointerEvents: 'auto' }}>
+                              <circle cx={`${p.x}%`} cy={`${p.y}%`} r={circleRadius} fill={isHighlight ? "#FFD700" : "white"} stroke={area.lineColor} strokeWidth={isHighlight ? 3/zoom : 2/zoom} onMouseDown={(e) => handlePointMouseDown(e, area.id, idx)} onTouchStart={(e) => handlePointMouseDown(e, area.id, idx)} className={isHighlight ? "animate-pulse" : ""} />
+                            </g>
+                          );
+                        })}
                       </g>
                     );
                   })}
                   {mode === 'draw' && activeAreaId && isDrawing && !pointDrag && cursorPos && activeArea && activeArea.points.length > 0 && (
-                    <polygon points={[...activeArea.points, cursorPos].map(p => `${p.x},${p.y}`).join(' ')} fill={activeArea.lineColor} fillOpacity={0.1} stroke="none" />
-                  )}
-              </svg>
-
-              <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ top: 0, left: 0 }}>
-                {item.areas.map(area => {
-                  const isActive = activeAreaId === area.id;
-                  return (
-                    <g key={area.id}>
-                      {area.points.map((p, idx) => {
-                        const isLast = idx === area.points.length - 1;
-                        const nextP = isLast ? area.points[0] : area.points[idx + 1];
-                        if (mode === 'draw' && isActive && isDrawing && isLast && !pointDrag) return null;
-                        if (area.points.length < 2) return null;
-                        return (
-                          <line key={`line-${idx}`} x1={`${p.x}%`} y1={`${p.y}%`} x2={`${nextP.x}%`} y2={`${nextP.y}%`} stroke={area.lineColor} strokeWidth={area.lineWidth / zoom} strokeDasharray={isActive && !pointDrag && isDrawing ? "4 4" : "0"} className={isActive && !pointDrag && isDrawing ? "animate-pulse" : ""} style={{ pointerEvents: 'none' }} />
-                        );
-                      })}
-                      {area.points.map((p, idx) => {
-                        const isFirstPoint = idx === 0;
-                        const isCurrentlyDrawing = mode === 'draw' && isActive && isDrawing;
-                        const isHighlight = isCurrentlyDrawing && isFirstPoint && area.points.length >= 2;
-                        const circleRadius = isHighlight ? 8/zoom : 4/zoom;
-                        
-                        return (
-                          <g key={idx} className="cursor-move" style={{ pointerEvents: 'auto' }}>
-                            <circle cx={`${p.x}%`} cy={`${p.y}%`} r={circleRadius} fill={isHighlight ? "#FFD700" : "white"} stroke={area.lineColor} strokeWidth={isHighlight ? 3/zoom : 2/zoom} onMouseDown={(e) => handlePointMouseDown(e, area.id, idx)} onTouchStart={(e) => handlePointMouseDown(e, area.id, idx)} className={isHighlight ? "animate-pulse" : ""} />
-                          </g>
-                        );
-                      })}
+                    <g style={{ pointerEvents: 'none' }}>
+                      <line x1={`${activeArea.points[activeArea.points.length - 1].x}%`} y1={`${activeArea.points[activeArea.points.length - 1].y}%`} x2={`${cursorPos.x}%`} y2={`${cursorPos.y}%`} stroke={activeArea.lineColor} strokeWidth={2/zoom} strokeDasharray="4 4" />
+                      <line x1={`${cursorPos.x}%`} y1={`${cursorPos.y}%`} x2={`${activeArea.points[0].x}%`} y2={`${activeArea.points[0].y}%`} stroke={activeArea.lineColor} strokeWidth={2/zoom} strokeDasharray="4 4" opacity="0.5" />
                     </g>
+                  )}
+                </svg>
+
+                {item.areas.map((area, idx) => {
+                  if(area.points.length === 0) return null;
+                  
+                  let wMidX = 50, wMidY = 0, wAng = 0;
+                  let hMidX = 0, hMidY = 50, hAng = -90;
+
+                  if (area.points.length >= 2) {
+                    let edges = [];
+                    for(let i=0; i<area.points.length; i++) {
+                      let p1 = area.points[i];
+                      let p2 = area.points[(i+1)%area.points.length];
+                      edges.push({ p1, p2, midX: (p1.x+p2.x)/2, midY: (p1.y+p2.y)/2, dx: p2.x - p1.x, dy: p2.y - p1.y });
+                    }
+                    
+                    let tEdge = edges.reduce((prev, curr) => prev.midY < curr.midY ? prev : curr);
+                    let bEdge = edges.reduce((prev, curr) => prev.midY > curr.midY ? prev : curr);
+                    let lEdge = edges.reduce((prev, curr) => prev.midX < curr.midX ? prev : curr);
+                    let rEdge = edges.reduce((prev, curr) => prev.midX > curr.midX ? prev : curr);
+
+                    const getVisualAngle = (edge, defaultAng) => {
+                      if (!containerRef.current) return defaultAng;
+                      const rect = containerRef.current.getBoundingClientRect();
+                      const pxDx = edge.dx * (rect.width / 100);
+                      const pxDy = edge.dy * (rect.height / 100);
+                      if (pxDx === 0 && pxDy === 0) return defaultAng;
+                      let ang = Math.atan2(pxDy, pxDx) * (180 / Math.PI);
+                      if (ang > 90 || ang < -90) ang += 180;
+                      return ang;
+                    };
+
+                    const wPos = area.wPos || 'top';
+                    const hPos = area.hPos || 'right';
+
+                    if (wPos === 'top') { wMidX = tEdge.midX; wMidY = tEdge.midY; wAng = getVisualAngle(tEdge, 0); }
+                    else { wMidX = bEdge.midX; wMidY = bEdge.midY; wAng = getVisualAngle(bEdge, 0); }
+
+                    if (hPos === 'left') { hMidX = lEdge.midX; hMidY = lEdge.midY; hAng = getVisualAngle(lEdge, -90); }
+                    else { hMidX = rEdge.midX; hMidY = rEdge.midY; hAng = getVisualAngle(rEdge, 90); }
+                  }
+
+                  const lblSize = (area.labelSize || 14) / zoom;
+                  
+                  return (
+                    <div key={`labels-${area.id}`} className="absolute inset-0 pointer-events-none">
+                      {item.areas.length >= 2 && area.points[0] && (
+                        <div style={{ position: 'absolute', left: `${area.points[0].x}%`, top: `${area.points[0].y}%`, transform: `translate(-50%, -100%) translateY(-10px)`, color: area.lineColor, fontSize: `${12/zoom}px`, whiteSpace: 'nowrap' }} className="bg-white/90 px-1.5 py-0.5 rounded shadow-sm border border-gray-300 font-bold z-10 text-center">
+                          บานที่ {idx + 1}
+                        </div>
+                      )}
+                      {area.width && (
+                        <div style={{ position: 'absolute', left: `${wMidX}%`, top: `${wMidY}%`, transform: `translate(-50%, -50%) rotate(${wAng}deg)`, color: area.labelColor || area.lineColor, fontSize: `${lblSize}px`, whiteSpace: 'nowrap' }} className="bg-white/95 px-2 py-0.5 rounded shadow-md border border-gray-300 font-bold z-10 text-center">
+                          {area.width} ซม.
+                        </div>
+                      )}
+                      {area.height && (
+                        <div style={{ position: 'absolute', left: `${hMidX}%`, top: `${hMidY}%`, transform: `translate(-50%, -50%) rotate(${hAng}deg)`, color: area.labelColor || area.lineColor, fontSize: `${lblSize}px`, whiteSpace: 'nowrap' }} className="bg-white/95 px-2 py-0.5 rounded shadow-md border border-gray-300 font-bold z-10 text-center">
+                          {area.height} ซม.
+                        </div>
+                      )}
+                    </div>
                   );
                 })}
-                {mode === 'draw' && activeAreaId && isDrawing && !pointDrag && cursorPos && activeArea && activeArea.points.length > 0 && (
-                  <g style={{ pointerEvents: 'none' }}>
-                    <line x1={`${activeArea.points[activeArea.points.length - 1].x}%`} y1={`${activeArea.points[activeArea.points.length - 1].y}%`} x2={`${cursorPos.x}%`} y2={`${cursorPos.y}%`} stroke={activeArea.lineColor} strokeWidth={2/zoom} strokeDasharray="4 4" />
-                    <line x1={`${cursorPos.x}%`} y1={`${cursorPos.y}%`} x2={`${activeArea.points[0].x}%`} y2={`${activeArea.points[0].y}%`} stroke={activeArea.lineColor} strokeWidth={2/zoom} strokeDasharray="4 4" opacity="0.5" />
-                  </g>
-                )}
-              </svg>
-
-              {item.areas.map((area, idx) => {
-                if(area.points.length === 0) return null;
-                
-                let wMidX = 50, wMidY = 0, wAng = 0;
-                let hMidX = 0, hMidY = 50, hAng = -90;
-
-                if (area.points.length >= 2) {
-                  let edges = [];
-                  for(let i=0; i<area.points.length; i++) {
-                    let p1 = area.points[i];
-                    let p2 = area.points[(i+1)%area.points.length];
-                    edges.push({ p1, p2, midX: (p1.x+p2.x)/2, midY: (p1.y+p2.y)/2, dx: p2.x - p1.x, dy: p2.y - p1.y });
-                  }
-                  
-                  let tEdge = edges.reduce((prev, curr) => prev.midY < curr.midY ? prev : curr);
-                  let bEdge = edges.reduce((prev, curr) => prev.midY > curr.midY ? prev : curr);
-                  let lEdge = edges.reduce((prev, curr) => prev.midX < curr.midX ? prev : curr);
-                  let rEdge = edges.reduce((prev, curr) => prev.midX > curr.midX ? prev : curr);
-
-                  const getVisualAngle = (edge, defaultAng) => {
-                    if (!containerRef.current) return defaultAng;
-                    const rect = containerRef.current.getBoundingClientRect();
-                    const pxDx = edge.dx * (rect.width / 100);
-                    const pxDy = edge.dy * (rect.height / 100);
-                    if (pxDx === 0 && pxDy === 0) return defaultAng;
-                    let ang = Math.atan2(pxDy, pxDx) * (180 / Math.PI);
-                    if (ang > 90 || ang < -90) ang += 180;
-                    return ang;
-                  };
-
-                  const wPos = area.wPos || 'top';
-                  const hPos = area.hPos || 'right';
-
-                  if (wPos === 'top') { wMidX = tEdge.midX; wMidY = tEdge.midY; wAng = getVisualAngle(tEdge, 0); }
-                  else { wMidX = bEdge.midX; wMidY = bEdge.midY; wAng = getVisualAngle(bEdge, 0); }
-
-                  if (hPos === 'left') { hMidX = lEdge.midX; hMidY = lEdge.midY; hAng = getVisualAngle(lEdge, -90); }
-                  else { hMidX = rEdge.midX; hMidY = rEdge.midY; hAng = getVisualAngle(rEdge, 90); }
-                }
-
-                const lblSize = (area.labelSize || 14) / zoom;
-                
-                return (
-                  <div key={`labels-${area.id}`} className="absolute inset-0 pointer-events-none">
-                    {item.areas.length >= 2 && area.points[0] && (
-                      <div style={{ position: 'absolute', left: `${area.points[0].x}%`, top: `${area.points[0].y}%`, transform: `translate(-50%, -100%) translateY(-10px)`, color: area.lineColor, fontSize: `${12/zoom}px`, whiteSpace: 'nowrap' }} className="bg-white/90 px-1.5 py-0.5 rounded shadow-sm border border-gray-300 font-bold z-10 text-center">
-                        บานที่ {idx + 1}
-                      </div>
-                    )}
-                    {area.width && (
-                      <div style={{ position: 'absolute', left: `${wMidX}%`, top: `${wMidY}%`, transform: `translate(-50%, -50%) rotate(${wAng}deg)`, color: area.labelColor || area.lineColor, fontSize: `${lblSize}px`, whiteSpace: 'nowrap' }} className="bg-white/95 px-2 py-0.5 rounded shadow-md border border-gray-300 font-bold z-10 text-center">
-                        {area.width} ซม.
-                      </div>
-                    )}
-                    {area.height && (
-                      <div style={{ position: 'absolute', left: `${hMidX}%`, top: `${hMidY}%`, transform: `translate(-50%, -50%) rotate(${hAng}deg)`, color: area.labelColor || area.lineColor, fontSize: `${lblSize}px`, whiteSpace: 'nowrap' }} className="bg-white/95 px-2 py-0.5 rounded shadow-md border border-gray-300 font-bold z-10 text-center">
-                        {area.height} ซม.
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+              </div>
             </div>
 
             <div className="absolute top-2 left-2 flex flex-wrap gap-2 z-40 no-print" onMouseDown={e=>e.stopPropagation()} onTouchStart={e=>e.stopPropagation()} onClick={e=>e.stopPropagation()} onWheel={e=>e.stopPropagation()}>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Plus, Trash2, Printer, Image as ImageIcon, Upload, Download, Save, X, MousePointerClick, Settings, Database, Eye, EyeOff, Move, Users, LogOut, FileText, ArrowLeft, Share2, ChevronLeft, ChevronRight, ImagePlus, Undo, Redo, Copy, ChevronUp, ChevronDown } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
@@ -14,14 +14,12 @@ const defaultFirebaseConfig = {
   appId: "1:58897117944:web:3b7aa0417af8bc99a4010d"
 };
 
+// บังคับใช้ Config และ AppID เดิมเสมอ เพื่อป้องกันข้อมูลหายเมื่อ Environment เปลี่ยนแปลง
 const app = initializeApp(defaultFirebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const appId = "curtain-app-3d38a";
 
-// ---------------------------------------------------------
-// ☁️ CLOUDINARY UPLOAD SETTINGS
-// ---------------------------------------------------------
 const CLOUDINARY_URL = "https://api.cloudinary.com/v1_1/dsxpwfujb/image/upload";
 const CLOUDINARY_UPLOAD_PRESET = "ml_default"; 
 
@@ -61,62 +59,41 @@ const DEFAULT_ACCOUNTS = [
   { id: '2', username: 'T65099', password: '65099', role: 'user', name: 'พนักงานทดสอบ', signatureUrl: '' }
 ];
 
-const AutoFitText = ({ text, className }) => {
+const AutoFitText = React.memo(({ text, className }) => {
   const containerRef = useRef(null);
   const textRef = useRef(null);
 
   useEffect(() => {
     const resizeText = () => {
       if (!containerRef.current || !textRef.current) return;
-      const container = containerRef.current;
+      const cw = containerRef.current.clientWidth;
       const textEl = textRef.current;
-
       textEl.style.fontSize = '13px';
-      const cw = container.clientWidth;
       const tw = textEl.scrollWidth;
-
-      if (tw > cw && cw > 0) {
-        const ratio = (cw - 12) / tw; 
-        const newFontSize = Math.floor(13 * ratio);
-        textEl.style.fontSize = `${Math.max(newFontSize, 7)}px`;
-      }
+      if (tw > cw && cw > 0) textEl.style.fontSize = `${Math.max(Math.floor(13 * ((cw - 12) / tw)), 7)}px`;
     };
-
     resizeText();
     const timeoutId = setTimeout(resizeText, 300);
-
     let observer;
     if (window.ResizeObserver && containerRef.current) {
-      observer = new ResizeObserver(() => resizeText());
+      observer = new ResizeObserver(resizeText);
       observer.observe(containerRef.current);
     }
-
-    const handleBeforePrint = () => {
-        resizeText(); 
-    };
-    window.addEventListener('beforeprint', handleBeforePrint);
-
+    window.addEventListener('beforeprint', resizeText);
     return () => {
       clearTimeout(timeoutId);
       if (observer) observer.disconnect();
-      window.removeEventListener('beforeprint', handleBeforePrint);
+      window.removeEventListener('beforeprint', resizeText);
     };
   }, [text]);
 
   if (!text) return null;
-
   return (
       <div ref={containerRef} className="w-full overflow-hidden print:overflow-visible px-1 flex items-center justify-center min-h-[20px]">
-          <span 
-              ref={textRef} 
-              className={`font-bold whitespace-nowrap ${className || ''}`} 
-              style={{ display: 'inline-block' }}
-          >
-              {text}
-          </span>
+          <span ref={textRef} className={`font-bold whitespace-nowrap ${className || ''}`} style={{ display: 'inline-block' }}>{text}</span>
       </div>
   );
-};
+});
 
 const AlertDialog = ({ dialog, onClose }) => {
   if (!dialog) return null;
@@ -125,9 +102,7 @@ const AlertDialog = ({ dialog, onClose }) => {
       <div className="bg-white rounded-lg p-6 max-w-sm w-full shadow-2xl flex flex-col items-center text-center">
         <p className="text-gray-800 mb-6 font-bold text-sm whitespace-pre-wrap">{dialog.message}</p>
         <div className="flex gap-4 w-full justify-center">
-          {dialog.type === 'confirm' && (
-            <button onClick={onClose} className="px-6 py-2 bg-gray-200 hover:bg-gray-300 rounded font-bold text-gray-700 text-sm">ยกเลิก</button>
-          )}
+          {dialog.type === 'confirm' && <button onClick={onClose} className="px-6 py-2 bg-gray-200 hover:bg-gray-300 rounded font-bold text-gray-700 text-sm">ยกเลิก</button>}
           <button onClick={() => { if(dialog.onConfirm) dialog.onConfirm(); onClose(); }} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded font-bold text-sm shadow">
             {dialog.type === 'confirm' ? 'ตกลง' : 'รับทราบ'}
           </button>
@@ -137,29 +112,15 @@ const AlertDialog = ({ dialog, onClose }) => {
   );
 };
 
-const delay = (ms) => new Promise((res) => setTimeout(res, ms));
-
 const uploadImageToCloudinary = async (base64Str) => {
   try {
     const formData = new FormData();
     formData.append("file", base64Str);
     formData.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
-
-    const res = await fetch(CLOUDINARY_URL, {
-      method: "POST",
-      body: formData
-    });
-    
-    if (!res.ok) {
-        throw new Error(`HTTP error! status: ${res.status}`);
-    }
-
-    const data = await res.json();
-    return data.secure_url; 
-  } catch (e) {
-    console.error("Cloudinary Upload failed:", e);
-    return null;
-  }
+    const res = await fetch(CLOUDINARY_URL, { method: "POST", body: formData });
+    if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+    return (await res.json()).secure_url; 
+  } catch (e) { return null; }
 };
 
 const removeWhiteBackground = (dataUrl) => {
@@ -167,26 +128,16 @@ const removeWhiteBackground = (dataUrl) => {
     const img = new Image();
     img.onload = () => {
       const canvas = document.createElement('canvas');
-      let w = img.width;
-      let h = img.height;
-      
-      if (h > 300) {
-          w = Math.round(w * (300 / h));
-          h = 300;
-      }
-      
-      canvas.width = w;
-      canvas.height = h;
+      let w = img.width, h = img.height;
+      if (h > 300) { w = Math.round(w * (300 / h)); h = 300; }
+      canvas.width = w; canvas.height = h;
       const ctx = canvas.getContext('2d');
       ctx.drawImage(img, 0, 0, w, h);
-      const imgData = ctx.getImageData(0, 0, w, h);
-      const data = imgData.data;
-      for (let i = 0; i < data.length; i += 4) {
-        if (data[i] > 190 && data[i+1] > 190 && data[i+2] > 190) {
-          data[i+3] = 0;
-        }
+      const data = ctx.getImageData(0, 0, w, h);
+      for (let i = 0; i < data.data.length; i += 4) {
+        if (data.data[i] > 190 && data.data[i+1] > 190 && data.data[i+2] > 190) data.data[i+3] = 0;
       }
-      ctx.putImageData(imgData, 0, 0);
+      ctx.putImageData(data, 0, 0);
       resolve(canvas.toDataURL('image/png'));
     };
     img.src = dataUrl;
@@ -206,7 +157,6 @@ const loadHeic2Any = async () => {
 
 const processImageFile = async (file, maxWidth = 1024, quality = 0.7, setDialog) => {
   let processFile = file;
-  
   if (file.name.toLowerCase().match(/\.(heic|heif)$/i)) {
     try {
       const heic2any = await loadHeic2Any();
@@ -214,8 +164,7 @@ const processImageFile = async (file, maxWidth = 1024, quality = 0.7, setDialog)
       const blobArray = Array.isArray(convertedBlob) ? convertedBlob : [convertedBlob];
       processFile = new File(blobArray, file.name.replace(/\.(heic|heif)$/i, '.jpg'), { type: "image/jpeg" });
     } catch (err) {
-      console.error("HEIC conversion failed", err);
-      if(setDialog) setDialog({ type: 'alert', message: "ไม่สามารถแปลงไฟล์ HEIC/HEIF ได้ กรุณาใช้ไฟล์ JPG/PNG" });
+      if(setDialog) setDialog({ type: 'alert', message: "ไม่สามารถแปลงไฟล์ HEIC ได้" });
       return null;
     }
   }
@@ -226,18 +175,13 @@ const processImageFile = async (file, maxWidth = 1024, quality = 0.7, setDialog)
       const img = new Image();
       img.onload = () => {
         const canvas = document.createElement('canvas');
-        let width = img.width;
-        let height = img.height;
+        let width = img.width, height = img.height;
         if (width > maxWidth) { height *= maxWidth / width; width = maxWidth; }
         canvas.width = width; canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0, width, height);
+        canvas.getContext('2d').drawImage(img, 0, 0, width, height);
         resolve(canvas.toDataURL('image/webp', quality)); 
       };
-      img.onerror = () => {
-        if(setDialog) setDialog({ type: 'alert', message: "ไฟล์รูปภาพไม่รองรับ หรือมีปัญหา" });
-        resolve(null);
-      };
+      img.onerror = () => { resolve(null); };
       img.src = e.target.result;
     };
     reader.onerror = () => resolve(null);
@@ -638,7 +582,6 @@ const DatabaseModal = ({ appDB, setAppDB, showDBSettings, setShowDBSettings, sav
                        <button onClick={addFabricItem} disabled={isUploading} className={`bg-indigo-600 text-white py-1.5 rounded text-sm font-bold mt-1 ${isUploading ? 'opacity-50' : 'hover:bg-indigo-700'}`}>บันทึกรายการผ้า</button>
                     </div>
 
-                    {/* --- BULK UPLOAD FOLDER SECTION --- */}
                     <div className="bg-indigo-50 p-3 border border-indigo-200 rounded shadow-sm flex flex-col gap-2 mt-2">
                        <span className="text-sm font-bold text-indigo-800">เพิ่มรายการแบบกลุ่ม (เข้าคิวทำงานเบื้องหลัง)</span>
                        <p className="text-[11px] text-gray-600 leading-tight">
@@ -975,7 +918,97 @@ const LoginScreen = ({ onLogin, isAuthReady }) => {
   );
 };
 
-const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 'editor' }) => {
+const MarginSelector = React.memo(({ label, field, customField, item, options, onChange }) => (
+    <div className="flex flex-col w-1/2">
+        <span className="text-gray-600 font-bold">{label}:</span>
+        <select value={item[field]} onChange={(e)=>onChange(item.id, field, e.target.value)} className="border-b border-gray-300 outline-none print-hidden bg-transparent font-medium text-blue-700">
+            <option value="">-เลือก-</option>{options.map(s=><option key={s} value={s}>{s}</option>)}
+        </select>
+        {item[field] === 'ระบุเอง...' && <input type="text" value={item[customField]} onChange={(e)=>onChange(item.id, customField, e.target.value)} placeholder="พิมพ์ระบุ..." className="border-b border-dashed border-gray-400 bg-transparent outline-none mt-1 print-hidden text-blue-700 font-bold"/>}
+        <div className="hidden print-block font-bold text-gray-800 whitespace-pre-wrap mt-0.5">{item[field] === 'ระบุเอง...' ? item[customField] : (item[field] || '-')}</div>
+    </div>
+));
+
+const InfoCard = React.memo(({ title, imgUrl, text1, text2, isDim = false }) => (
+    <div className={`flex flex-col items-center bg-white border border-gray-200 p-1.5 sm:p-2 rounded shadow-sm h-full justify-between overflow-hidden ${isDim ? 'opacity-40 print:opacity-50' : ''}`}>
+        <span className="text-[11px] sm:text-[13px] font-bold text-gray-800 w-full text-center mb-1 sm:mb-2 shrink-0">{title}</span>
+        <div className="flex-1 w-full border border-gray-100 flex items-center justify-center rounded overflow-hidden bg-gray-50 p-0 relative mb-1 sm:mb-2">
+            {imgUrl ? <img src={optImg(imgUrl, 400)} className="w-full h-full object-cover" /> : <span className="text-[10px] text-gray-400">-</span>}
+        </div>
+        <AutoFitText text={text1 || '-'} className="text-blue-800 print:text-black" />
+    </div>
+));
+
+const FabricSelector = React.memo(({ item, area, fab, appDB, generalInfo, updateFabric, removeFabric }) => {
+    const isCustom = fab.mainType === 'ผ้านอกระบบ (เฉพาะงานนี้)';
+    const isCurtain = fab.mainType === 'ผ้าม่าน';
+    const mainTypeOptions = [...Object.keys(appDB.curtainTypes || {}), ...(generalInfo.customFabrics?.length > 0 ? ['ผ้านอกระบบ (เฉพาะงานนี้)'] : [])];
+    
+    let subTypeOptions = [], nameOptions = [], colorOptions = [], curtainModels = [];
+    if (isCurtain && appDB.curtainTypes['ผ้าม่าน']) {
+        Object.entries(appDB.curtainTypes['ผ้าม่าน']).forEach(([sT, mods]) => {
+            Object.keys(mods).forEach(mName => curtainModels.push({ modelName: mName, subType: sT }));
+        });
+        curtainModels.sort((a,b) => a.modelName.localeCompare(b.modelName));
+    }
+
+    if (isCustom) {
+      const cFabs = generalInfo.customFabrics || [];
+      subTypeOptions = [...new Set(cFabs.map(f=>f.subType))].filter(Boolean).sort();
+      nameOptions = [...new Set(cFabs.filter(f=>f.subType === fab.subType).map(f=>f.name))].filter(Boolean).sort();
+      colorOptions = [...new Set(cFabs.filter(f=>f.subType === fab.subType && f.name === fab.name).map(f=>f.color))].filter(Boolean).sort();
+    } else if (isCurtain) {
+      nameOptions = curtainModels.map(m => m.modelName);
+      const matchModel = curtainModels.find(m => m.modelName === fab.name);
+      if (matchModel) colorOptions = Object.keys(appDB.curtainTypes['ผ้าม่าน'][matchModel.subType][fab.name] || {}).sort();
+    } else {
+      subTypeOptions = fab.mainType ? Object.keys(appDB.curtainTypes[fab.mainType] || {}).sort() : [];
+      nameOptions = fab.subType ? Object.keys(appDB.curtainTypes[fab.mainType]?.[fab.subType] || {}).sort() : [];
+      colorOptions = fab.name ? Object.keys(appDB.curtainTypes[fab.mainType]?.[fab.subType]?.[fab.name] || {}).sort() : [];
+    }
+
+    const nameListId = `names-${item.id}-${area.id}-${fab.id}`;
+    const colorListId = `colors-${item.id}-${area.id}-${fab.id}`;
+
+    return (
+      <div className="flex flex-col gap-1.5 mb-1.5 bg-white p-1.5 border border-gray-200 rounded relative pr-5 shadow-sm">
+        <button onClick={()=>removeFabric(item.id, area.id, fab.id)} className="absolute top-1 right-1 text-red-500 hover:bg-red-50 rounded no-print transition-colors"><X size={14}/></button>
+        <div className="flex flex-col gap-1.5">
+          <div className="flex gap-1.5">
+            <select value={fab.mainType} onChange={(e)=>updateFabric(item.id, area.id, fab.id, {mainType: e.target.value, subType:'', name:'', color:''})} className={`border-b border-gray-300 outline-none text-[11px] bg-transparent font-bold ${isCustom ? 'text-indigo-600' : 'text-gray-700'} ${isCurtain ? 'w-full' : 'w-1/2'}`}>
+              <option value="">-หมวดหมู่-</option>{mainTypeOptions.map(o=><option key={o} value={o}>{o}</option>)}
+            </select>
+            {!isCurtain && (
+                <select value={fab.subType} onChange={(e)=>updateFabric(item.id, area.id, fab.id, {subType: e.target.value, name:'', color:''})} className="w-1/2 border-b border-gray-300 outline-none text-[11px] bg-transparent font-bold text-indigo-700" disabled={!fab.mainType}>
+                  <option value="">-ประเภทม่าน-</option>{subTypeOptions.map(o=><option key={o} value={o}>{o}</option>)}
+                </select>
+            )}
+          </div>
+          <div className="flex gap-1.5">
+            <div className="w-1/2 relative">
+              <input list={nameListId} value={fab.name} onChange={(e) => {
+                 const val = e.target.value.toUpperCase();
+                 if (isCurtain) {
+                     const match = curtainModels.find(m => m.modelName === val);
+                     updateFabric(item.id, area.id, fab.id, {name: val, subType: match ? match.subType : fab.subType, color: ''});
+                 } else updateFabric(item.id, area.id, fab.id, {name: val, color: ''});
+              }} className="w-full border-b border-gray-300 outline-none text-[11px] bg-transparent font-medium" disabled={!fab.mainType || (!isCurtain && !fab.subType)} placeholder="-พิมพ์ค้นหารุ่น-"/>
+              <datalist id={nameListId}>{nameOptions.map(o=><option key={o} value={o}/>)}</datalist>
+            </div>
+            <div className="w-1/2 relative">
+              <input list={colorListId} value={fab.color} onChange={(e)=>updateFabric(item.id, area.id, fab.id, {color: e.target.value})} className="w-full border-b border-gray-300 outline-none text-[11px] bg-transparent font-medium text-gray-600" disabled={!fab.name} placeholder="-พิมพ์ค้นหาสี-"/>
+              <datalist id={colorListId}>{colorOptions.map(o=><option key={o} value={o}/>)}</datalist>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+});
+
+// ---------------------------------------------------------
+// COMPONENT: ImageAreaEditor 
+// ---------------------------------------------------------
+const ImageAreaEditor = React.memo(({ item, appDB, handleItemChange, setDialog, idPrefix = 'editor' }) => {
   const [activeAreaId, setActiveAreaId] = useState(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [showControls, setShowControls] = useState(false);
@@ -995,53 +1028,48 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
   const viewportRef = useRef(null);
   const imgRef = useRef(null);
   const [imgNativeSize, setImgNativeSize] = useState(null);
+  const [containerStyle, setContainerStyle] = useState({ width: '100%', height: '100%' });
 
-  // คำนวณขนาดภาพ (PX) ให้พอดีกรอบอย่างแม่นยำ โดยรักษา Aspect Ratio เสมอ
   useEffect(() => {
     const updateSize = () => {
-      if (!viewportRef.current || !containerRef.current || !imgNativeSize) return;
-      const vw = viewportRef.current.offsetWidth;
-      const vh = viewportRef.current.offsetHeight;
+      if (!viewportRef.current || !imgNativeSize) return;
+      const vw = viewportRef.current.clientWidth;
+      const vh = viewportRef.current.clientHeight;
       const { w: natW, h: natH } = imgNativeSize;
-      
       if (natW === 0 || natH === 0 || vw === 0 || vh === 0) return;
 
       const ri = natW / natH;
       const rc = vw / vh;
-
       let finalW, finalH;
+
       if (item.imageFit === 'fill') {
-          if (ri > rc) {
-              finalH = vh;
-              finalW = vh * ri;
-          } else {
-              finalW = vw;
-              finalH = vw / ri;
-          }
-      } else { // fit
-          if (ri > rc) {
-              finalW = vw;
-              finalH = vw / ri;
-          } else {
-              finalH = vh;
-              finalW = vh * ri;
-          }
+          if (ri > rc) { finalH = vh; finalW = vh * ri; } 
+          else { finalW = vw; finalH = vw / ri; }
+      } else { 
+          if (ri > rc) { finalW = vw; finalH = vw / ri; } 
+          else { finalH = vh; finalW = vh * ri; }
       }
 
-      containerRef.current.style.width = `${finalW}px`;
-      containerRef.current.style.height = `${finalH}px`;
+      setContainerStyle({ width: `${finalW}px`, height: `${finalH}px` });
+      
+      if (containerRef.current) {
+          containerRef.current.style.width = `${finalW}px`;
+          containerRef.current.style.height = `${finalH}px`;
+      }
     };
 
     updateSize();
-    const ro = new ResizeObserver(updateSize);
-    if (viewportRef.current) ro.observe(viewportRef.current);
+    let ro;
+    if (viewportRef.current && window.ResizeObserver) {
+        ro = new ResizeObserver(updateSize);
+        ro.observe(viewportRef.current);
+    }
 
-    const handleBeforePrint = () => updateSize();
-    window.addEventListener('beforeprint', handleBeforePrint);
+    window.addEventListener('beforeprint', updateSize);
 
     return () => {
-        ro.disconnect();
-        window.removeEventListener('beforeprint', handleBeforePrint);
+        if (ro) ro.disconnect();
+        window.removeEventListener('beforeprint', updateSize);
     };
   }, [imgNativeSize, item.imageFit]);
 
@@ -1074,17 +1102,17 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isDrawing, activeAreaId, item.areas, item.id, handleItemChange]);
 
-  const getPctFromEvent = (e) => {
+  const getPctFromEvent = useCallback((e) => {
       if (!containerRef.current || !imgNativeSize) return null;
       let clientX = e.touches && e.touches.length > 0 ? e.touches[0].clientX : e.clientX;
       let clientY = e.touches && e.touches.length > 0 ? e.touches[0].clientY : e.clientY;
       
       const rect = containerRef.current.getBoundingClientRect();
-      const xPct = Math.max(0, Math.min(100, ((clientX - rect.left) / rect.width) * 100));
-      const yPct = Math.max(0, Math.min(100, ((clientY - rect.top) / rect.height) * 100));
-
-      return { xPct, yPct };
-  };
+      return { 
+          xPct: Math.max(0, Math.min(100, ((clientX - rect.left) / rect.width) * 100)),
+          yPct: Math.max(0, Math.min(100, ((clientY - rect.top) / rect.height) * 100))
+      };
+  }, [imgNativeSize]);
 
   useEffect(() => {
     const handleGlobalPointMove = (e) => {
@@ -1115,13 +1143,14 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
       window.removeEventListener('mouseup', handleGlobalPointUp);
       window.removeEventListener('touchmove', handleGlobalPointUp);
     }
-  }, [pointDrag, zoom, pan, item.imageFit, imgNativeSize, item.areas, item.id]);
+  }, [pointDrag, zoom, pan, item.imageFit, imgNativeSize, item.areas, item.id, handleItemChange, getPctFromEvent]);
 
   useEffect(() => {
     const handleGlobalPanelMove = (e) => {
       if (draggingPanel && wrapperRef.current) {
-        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        let clientX = e.touches && e.touches.length > 0 ? e.touches[0].clientX : e.clientX;
+        let clientY = e.touches && e.touches.length > 0 ? e.touches[0].clientY : e.clientY;
+
         const rect = wrapperRef.current.getBoundingClientRect();
         let newX = clientX - rect.left - panelDragStart.x;
         let newY = clientY - rect.top - panelDragStart.y;
@@ -1149,8 +1178,8 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
   const onPanelMouseDown = (e) => {
     e.stopPropagation();
     if (wrapperRef.current) {
-      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+      let clientX = e.touches && e.touches.length > 0 ? e.touches[0].clientX : e.clientX;
+      let clientY = e.touches && e.touches.length > 0 ? e.touches[0].clientY : e.clientY;
       const rect = wrapperRef.current.getBoundingClientRect();
       setDraggingPanel(true);
       setPanelDragStart({ x: clientX - rect.left - panelPos.x, y: clientY - rect.top - panelPos.y });
@@ -1163,8 +1192,7 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
       id: newAreaId, points: [], width: '', height: '', 
       lineColor: '#EF4444', lineWidth: 2, fabrics: [], layers: 2,
       labelColor: '#EF4444', labelSize: 14, wPos: 'top', hPos: 'right',
-      maskType: '', maskPct: 20, maskOpacity: 87,
-      styleMain1: '', styleAction1: '', styleMain2: '', styleAction2: ''
+      maskType: '', maskPct: 20, maskOpacity: 87, styleMain1: '', styleAction1: '', styleMain2: '', styleAction2: ''
     };
     handleItemChange(item.id, 'areas', [...item.areas, newArea]);
     setActiveAreaId(newAreaId);
@@ -1174,15 +1202,10 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
 
   const handleRemoveArea = (areaId) => {
     handleItemChange(item.id, 'areas', item.areas.filter(a => a.id !== areaId));
-    if (activeAreaId === areaId) {
-      setActiveAreaId(null);
-      setIsDrawing(false);
-    }
+    if (activeAreaId === areaId) { setActiveAreaId(null); setIsDrawing(false); }
   };
 
-  const handleUpdateArea = (areaId, field, value) => {
-    handleItemChange(item.id, 'areas', item.areas.map(a => a.id === areaId ? { ...a, [field]: value } : a));
-  };
+  const handleUpdateArea = (areaId, field, value) => handleItemChange(item.id, 'areas', item.areas.map(a => a.id === areaId ? { ...a, [field]: value } : a));
 
   const handleMouseDown = (e) => { 
     let clientX = e.touches && e.touches.length > 0 ? e.touches[0].clientX : e.clientX;
@@ -1214,13 +1237,9 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
     
     if (mode === 'draw' && activeAreaId && isDrawing) {
         if (e.cancelable) e.preventDefault();
-    }
-    
-    if (mode === 'draw' && activeAreaId && isDrawing && !pointDrag && !isPanning) {
         const pos = getPctFromEvent(e);
-        if (pos) setCursorPos({ x: pos.xPct, y: pos.yPct });
-    } else {
-        setCursorPos(null);
+        if (pos && !pointDrag && !isPanning) setCursorPos({ x: pos.xPct, y: pos.yPct });
+        else setCursorPos(null);
     }
   };
 
@@ -1229,10 +1248,8 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
 
   const handleContentClick = (e) => {
     if (mode !== 'draw' || !activeAreaId || !isDrawing || pointDrag || isPanning || draggingPanel) return;
-    
     const pos = getPctFromEvent(e);
     if (!pos) return;
-
     const area = item.areas.find(a => a.id === activeAreaId);
     if (area && area.points.length > 0) {
       const lastPt = area.points[area.points.length - 1];
@@ -1244,13 +1261,9 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
   const handlePointMouseDown = (e, areaId, pIdx) => { 
     e.stopPropagation(); 
     setActiveAreaId(areaId); 
-    
     if (isDrawing && pIdx === 0 && item.areas.find(a => a.id === areaId).points.length > 2) {
-      setIsDrawing(false);
-      setCursorPos(null);
-      return;
+      setIsDrawing(false); setCursorPos(null); return;
     }
-
     setPointDrag({ areaId, pIdx }); 
   };
 
@@ -1266,9 +1279,7 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
                handleItemChange(item.id, 'image', url);
                setShowControls(true);
              } else setDialog({ type: 'alert', message: 'อัปโหลดรูปล้มเหลว' });
-         } catch (err) {
-             setDialog({ type: 'alert', message: 'ระบบขัดข้อง กรุณาลองใหม่' });
-         }
+         } catch (err) { setDialog({ type: 'alert', message: 'ระบบขัดข้อง กรุณาลองใหม่' }); }
       }
       setIsUploadingObj(false);
     }
@@ -1305,8 +1316,9 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
                   ref={containerRef}
                   style={{
                       position: 'relative',
-                      flexShrink: 0
-                      // Width and Height are dynamically injected by Javascript updateSize() perfectly.
+                      flexShrink: 0,
+                      width: containerStyle.width,
+                      height: containerStyle.height
                   }}
                   className="shadow-sm"
               >
@@ -1314,7 +1326,7 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
                     ref={imgRef}
                     src={optImg(item.image, 1600)} 
                     alt="Window view" 
-                    style={{ width: '100%', height: '100%', display: 'block' }}
+                    style={{ width: '100%', height: '100%', display: 'block', objectFit: 'fill' }}
                     className="absolute inset-0 pointer-events-none" 
                     onLoad={e => setImgNativeSize({ w: e.target.naturalWidth, h: e.target.naturalHeight })} 
                 />
@@ -1594,24 +1606,19 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
 
           <div className="p-2 text-sm flex flex-col gap-2 max-h-[350px] overflow-y-auto">
             <div className="flex justify-between items-center">
-               <button onClick={()=>{handleAddArea();}} className="bg-green-600 text-white px-3 py-1.5 rounded shadow-sm font-bold flex items-center text-xs hover:bg-green-700"><Plus size={14} className="mr-1"/> เพิ่มพื้นที่ม่าน</button>
-               {mode === 'draw' && activeAreaId && isDrawing && <span className="text-red-500 font-bold bg-red-50 px-2 py-1.5 rounded border border-red-200 text-[10px] animate-pulse">คลิกจุดเริ่มต้น เพื่อจบเส้น (ESC ยกเลิก)</span>}
+               <button onClick={handleAddArea} className="bg-green-600 text-white px-3 py-1.5 rounded shadow-sm font-bold flex items-center text-xs hover:bg-green-700"><Plus size={14} className="mr-1"/> เพิ่มพื้นที่ม่าน</button>
+               {mode === 'draw' && activeAreaId && isDrawing && <span className="text-red-500 font-bold bg-red-50 px-2 py-1.5 rounded border border-red-200 text-[10px] animate-pulse">คลิกจุดเริ่มต้น เพื่อจบเส้น (ESC)</span>}
             </div>
 
             {item.areas.map((area, idx) => {
               const isActive = activeAreaId === area.id;
-              const styleMain1 = area.styleMain1 || item.styleMain1 || item.styleMain || '';
-              const autoMaskType = styleMain1.match(/ม่านม้วน|ม่านพับ|มู่ลี่|ม่านปรับแสง/) ? 'height' : 'width';
+              const autoMaskType = (area.styleMain1 || item.styleMain1 || item.styleMain || '').match(/ม่านม้วน|ม่านพับ|มู่ลี่|ม่านปรับแสง/) ? 'height' : 'width';
               return (
                 <div key={area.id} className={`flex flex-col gap-2 border p-2.5 rounded bg-white transition-all ${isActive ? 'border-blue-400 ring-2 ring-blue-100 shadow-md' : 'border-gray-200'}`}>
                   <div className="flex flex-wrap gap-1 items-center justify-between">
                     <div className="flex gap-1 items-center">
                       <button onClick={() => { setActiveAreaId(isActive ? null : area.id); if(!isActive) setIsDrawing(false); setMode('draw'); }} className={`px-2 py-1 rounded border font-bold flex items-center text-xs ${isActive ? 'bg-blue-50 text-blue-600 border-blue-200' : 'bg-gray-100 text-gray-700 border-gray-200 hover:bg-gray-200'}`}>บานที่ {idx + 1}</button>
-                      {isActive && (
-                        <button onClick={() => setIsDrawing(!isDrawing)} className={`px-2 py-1 text-[10px] rounded font-bold shadow-sm transition-colors ${isDrawing ? 'bg-red-500 text-white animate-pulse' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}>
-                          {isDrawing ? 'หยุดวาดจุด' : '+ วาดจุดเพิ่ม'}
-                        </button>
-                      )}
+                      {isActive && <button onClick={() => setIsDrawing(!isDrawing)} className={`px-2 py-1 text-[10px] rounded font-bold shadow-sm transition-colors ${isDrawing ? 'bg-red-500 text-white animate-pulse' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}>{isDrawing ? 'หยุดวาดจุด' : '+ วาดจุดเพิ่ม'}</button>}
                     </div>
                     <div className="flex items-center gap-1.5 ml-auto">
                        <button onClick={() => handleUpdateArea(area.id, 'points', [])} className="text-xs text-orange-600 hover:bg-orange-50 px-2 py-1 rounded border border-orange-200 font-bold">ล้างเส้น</button>
@@ -1635,39 +1642,24 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
                   <div className="flex flex-col gap-1.5 border-t pt-2 mt-1 bg-blue-50/30 p-2 rounded">
                     <div className="flex items-center justify-between text-xs">
                       <span className="font-bold text-indigo-800">รูปแบบ Mask:</span>
-                      <select value={area.maskType || autoMaskType} onChange={(e)=>handleUpdateArea(area.id, 'maskType', e.target.value)} className="border border-indigo-200 rounded bg-white px-2 py-1 outline-none text-indigo-700 font-bold text-[11px]">
-                        <option value="width">เปิดข้าง (จีบ/ลอน)</option>
-                        <option value="height">ดึงลง (ม้วน/พับ/มู่ลี่)</option>
-                      </select>
+                      <select value={area.maskType || autoMaskType} onChange={(e)=>handleUpdateArea(area.id, 'maskType', e.target.value)} className="border border-indigo-200 rounded bg-white px-2 py-1 outline-none text-indigo-700 font-bold text-[11px]"><option value="width">เปิดข้าง (จีบ/ลอน)</option><option value="height">ดึงลง (ม้วน/พับ/มู่ลี่)</option></select>
                     </div>
                     <div className="flex items-center justify-between text-xs mt-1">
-                      <label className="flex items-center gap-1">
-                        <span className="font-bold text-gray-600">% แสดงผล:</span>
-                        <select value={area.maskPct || 20} onChange={(e)=>handleUpdateArea(area.id, 'maskPct', parseInt(e.target.value))} className="border rounded bg-white px-1 py-0.5 outline-none text-blue-700 font-bold">
-                          {[10, 20, 25, 30, 40, 50, 60, 70, 80, 90, 100].map(sz => <option key={sz} value={sz}>{sz}%</option>)}
-                        </select>
+                      <label className="flex items-center gap-1"><span className="font-bold text-gray-600">% แสดงผล:</span>
+                        <select value={area.maskPct || 20} onChange={(e)=>handleUpdateArea(area.id, 'maskPct', parseInt(e.target.value))} className="border rounded bg-white px-1 py-0.5 outline-none text-blue-700 font-bold">{[10, 20, 25, 30, 40, 50, 60, 70, 80, 90, 100].map(sz => <option key={sz} value={sz}>{sz}%</option>)}</select>
                       </label>
-                      <label className="flex items-center gap-1">
-                        <span className="font-bold text-gray-600">ความทึบ:</span>
-                        <select value={area.maskOpacity ?? 87} onChange={(e)=>handleUpdateArea(area.id, 'maskOpacity', parseInt(e.target.value))} className="border rounded bg-white px-1 py-0.5 outline-none text-blue-700 font-bold">
-                          {[10, 20, 30, 40, 50, 60, 70, 80, 87, 90, 100].map(sz => <option key={sz} value={sz}>{sz}%</option>)}
-                        </select>
+                      <label className="flex items-center gap-1"><span className="font-bold text-gray-600">ความทึบ:</span>
+                        <select value={area.maskOpacity ?? 87} onChange={(e)=>handleUpdateArea(area.id, 'maskOpacity', parseInt(e.target.value))} className="border rounded bg-white px-1 py-0.5 outline-none text-blue-700 font-bold">{[10, 20, 30, 40, 50, 60, 70, 80, 87, 90, 100].map(sz => <option key={sz} value={sz}>{sz}%</option>)}</select>
                       </label>
                     </div>
                   </div>
 
                   <div className="flex flex-wrap gap-2 items-center text-xs border-t pt-2 mt-1 justify-between">
-                    <div className="flex items-center gap-1.5">
-                      <span className="font-bold text-gray-700">สี:</span>
-                      {PRESET_COLORS.map(c => (
-                        <button key={c} onClick={(e) => { e.stopPropagation(); handleUpdateArea(area.id, 'lineColor', c); handleUpdateArea(area.id, 'labelColor', c); }} className={`w-4 h-4 rounded-full border ${area.lineColor === c ? 'ring-2 ring-offset-1 ring-blue-500 border-transparent' : 'border-gray-300'}`} style={{ backgroundColor: c }} />
-                      ))}
+                    <div className="flex items-center gap-1.5"><span className="font-bold text-gray-700">สี:</span>
+                      {PRESET_COLORS.map(c => <button key={c} onClick={(e) => { e.stopPropagation(); handleUpdateArea(area.id, 'lineColor', c); handleUpdateArea(area.id, 'labelColor', c); }} className={`w-4 h-4 rounded-full border ${area.lineColor === c ? 'ring-2 ring-offset-1 ring-blue-500 border-transparent' : 'border-gray-300'}`} style={{ backgroundColor: c }} />)}
                     </div>
-                    <label className="flex items-center">
-                      <span className="font-bold mr-1 text-gray-700">อักษร:</span>
-                      <select value={area.labelSize || 14} onChange={(e)=>handleUpdateArea(area.id, 'labelSize', parseInt(e.target.value))} className="border rounded bg-white px-1 py-0.5 outline-none font-bold text-blue-700">
-                        {[10, 12, 14, 16, 18, 20, 24, 28, 32].map(sz => <option key={sz} value={sz}>{sz}px</option>)}
-                      </select>
+                    <label className="flex items-center"><span className="font-bold mr-1 text-gray-700">อักษร:</span>
+                      <select value={area.labelSize || 14} onChange={(e)=>handleUpdateArea(area.id, 'labelSize', parseInt(e.target.value))} className="border rounded bg-white px-1 py-0.5 outline-none font-bold text-blue-700">{[10, 12, 14, 16, 18, 20, 24, 28, 32].map(sz => <option key={sz} value={sz}>{sz}px</option>)}</select>
                     </label>
                   </div>
                 </div>
@@ -1676,15 +1668,9 @@ const ImageAreaEditor = ({ item, appDB, handleItemChange, setDialog, idPrefix = 
           </div>
         </div>
       )}
-
-      {item.image && !showControls && (
-        <button onClick={(e) => { e.stopPropagation(); setShowControls(true); }} className="absolute top-2 right-2 bg-white/90 border border-gray-300 text-gray-700 p-2 rounded shadow-sm hover:bg-white no-print z-40 flex items-center text-xs font-bold">
-          <Eye size={14} className="mr-2"/> เปิดแผงเครื่องมือพื้นที่
-        </button>
-      )}
     </div>
   );
-};
+});
 
 const App = () => {
   const [firebaseUser, setFirebaseUser] = useState(null);
@@ -1703,39 +1689,6 @@ const App = () => {
   const [allAccounts, setAllAccounts] = useState(DEFAULT_ACCOUNTS);
   
   const [logoSrc, setLogoSrc] = useState("https://lh3.googleusercontent.com/d/1xT2ysUSWkTcFxs1ztoGxZuQcnO_c66Tu");
-
-  useEffect(() => {
-    const processLogo = () => {
-      const img = new Image();
-      img.crossOrigin = "Anonymous";
-      img.onload = () => {
-        try {
-          const canvas = document.createElement('canvas');
-          let w = img.width;
-          let h = img.height;
-          if (h > 200) { w = Math.round(w * (200 / h)); h = 200; }
-          canvas.width = w;
-          canvas.height = h;
-          const ctx = canvas.getContext('2d');
-          ctx.drawImage(img, 0, 0, w, h);
-          const imgData = ctx.getImageData(0, 0, w, h);
-          const data = imgData.data;
-          
-          for (let i = 0; i < data.length; i += 4) {
-            if (data[i] > 210 && data[i+1] > 210 && data[i+2] > 210) {
-              data[i+3] = 0; 
-            }
-          }
-          ctx.putImageData(imgData, 0, 0);
-          setLogoSrc(canvas.toDataURL('image/png'));
-        } catch (e) {
-          console.warn("Logo CORS error, using CSS fallback.");
-        }
-      };
-      img.src = "https://lh3.googleusercontent.com/d/1xT2ysUSWkTcFxs1ztoGxZuQcnO_c66Tu";
-    };
-    processLogo();
-  }, []);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [filterEmployee, setFilterEmployee] = useState('');
@@ -1762,24 +1715,41 @@ const App = () => {
   const [items, setItems] = useState([]);
 
   useEffect(() => {
+    const processLogo = () => {
+      const img = new Image();
+      img.crossOrigin = "Anonymous";
+      img.onload = () => {
+        try {
+          const canvas = document.createElement('canvas');
+          let w = img.width, h = img.height;
+          if (h > 200) { w = Math.round(w * (200 / h)); h = 200; }
+          canvas.width = w; canvas.height = h;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, w, h);
+          const imgData = ctx.getImageData(0, 0, w, h);
+          const data = imgData.data;
+          for (let i = 0; i < data.length; i += 4) {
+            if (data[i] > 210 && data[i+1] > 210 && data[i+2] > 210) data[i+3] = 0; 
+          }
+          ctx.putImageData(imgData, 0, 0);
+          setLogoSrc(canvas.toDataURL('image/png'));
+        } catch (e) { console.warn("Logo CORS error, using CSS fallback."); }
+      };
+      img.src = "https://lh3.googleusercontent.com/d/1xT2ysUSWkTcFxs1ztoGxZuQcnO_c66Tu";
+    };
+    processLogo();
+  }, []);
+
+  useEffect(() => {
     const storedUser = localStorage.getItem('curtainAppUser');
     if (storedUser) setAppUser(JSON.parse(storedUser));
-
     const initAuth = async () => {
       try {
         if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          try {
-            await signInWithCustomToken(auth, __initial_auth_token);
-          } catch (tokenError) {
-            console.warn("Token auth failed, falling back to anonymous:", tokenError);
-            await signInAnonymously(auth);
-          }
-        } else {
-          await signInAnonymously(auth);
-        }
-      } catch (err) {
-        console.error("Auth Error:", err);
-      }
+          try { await signInWithCustomToken(auth, __initial_auth_token); } 
+          catch (e) { await signInAnonymously(auth); }
+        } else await signInAnonymously(auth);
+      } catch (err) { console.error("Auth Error:", err); }
     };
     initAuth();
     const unsubscribe = onAuthStateChanged(auth, setFirebaseUser);
@@ -1796,46 +1766,36 @@ const App = () => {
     fetchAcc();
   }, [firebaseUser]);
 
-  const loadProjectsList = async () => {
+  const loadProjectsList = useCallback(async () => {
     if (!firebaseUser || !appUser) return;
     try {
       const querySnapshot = await getDocs(collection(db, 'artifacts', appId, 'public', 'data', 'projects'));
       let allProjects = [];
       querySnapshot.forEach((doc) => allProjects.push({ id: doc.id, ...doc.data() }));
-      
       if (appUser.role !== 'admin') allProjects = allProjects.filter(p => p.owner === appUser.username);
       allProjects.sort((a,b) => new Date(b.updatedAt) - new Date(a.updatedAt));
       setProjectsList(allProjects);
     } catch(e) { console.error("Load Projects Error:", e); }
-  };
+  }, [firebaseUser, appUser]);
 
   useEffect(() => {
     if (firebaseUser && appUser && view === 'dashboard') loadProjectsList();
-  }, [firebaseUser, appUser, view]);
+  }, [firebaseUser, appUser, view, loadProjectsList]);
 
   useEffect(() => {
     if (view !== 'editor') return; 
-    if (isUndoRedoAction.current) {
-        isUndoRedoAction.current = false;
-        return;
-    }
+    if (isUndoRedoAction.current) { isUndoRedoAction.current = false; return; }
     const timer = setTimeout(() => {
         const currentState = JSON.stringify({ generalInfo, items });
         const lastState = historyRef.current[historyIndexRef.current];
-
         if (currentState !== lastState) {
             historyRef.current = historyRef.current.slice(0, historyIndexRef.current + 1);
             historyRef.current.push(currentState);
-            
-            if (historyRef.current.length > 50) {
-                historyRef.current.shift();
-            } else {
-                historyIndexRef.current++;
-            }
+            if (historyRef.current.length > 50) historyRef.current.shift();
+            else historyIndexRef.current++;
             setForceUpdate(prev => !prev);
         }
-    }, 400);
-
+    }, 800); 
     return () => clearTimeout(timer);
   }, [generalInfo, items, view]);
 
@@ -1844,9 +1804,7 @@ const App = () => {
         isUndoRedoAction.current = true;
         historyIndexRef.current--;
         const previousState = JSON.parse(historyRef.current[historyIndexRef.current]);
-        setGeneralInfo(previousState.generalInfo);
-        setItems(previousState.items);
-        setForceUpdate(prev => !prev);
+        setGeneralInfo(previousState.generalInfo); setItems(previousState.items); setForceUpdate(prev => !prev);
     }
   };
 
@@ -1855,30 +1813,20 @@ const App = () => {
         isUndoRedoAction.current = true;
         historyIndexRef.current++;
         const nextState = JSON.parse(historyRef.current[historyIndexRef.current]);
-        setGeneralInfo(nextState.generalInfo);
-        setItems(nextState.items);
-        setForceUpdate(prev => !prev);
+        setGeneralInfo(nextState.generalInfo); setItems(nextState.items); setForceUpdate(prev => !prev);
     }
   };
 
   useEffect(() => {
     if (!firebaseUser || !appUser) return;
-    const settingsRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'appDB');
-    const unsub = onSnapshot(settingsRef, (snap) => {
+    const unsub = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'appDB'), (snap) => {
       if (snap.exists() && snap.data() && Object.keys(snap.data()).length > 0) {
         const mergedDB = { ...DEFAULT_DB, ...snap.data() };
-        setAppDB(mergedDB);
-        appDBRef.current = mergedDB;
-        localStorage.setItem('backupAppDB', JSON.stringify(mergedDB));
+        setAppDB(mergedDB); appDBRef.current = mergedDB; localStorage.setItem('backupAppDB', JSON.stringify(mergedDB));
       } else {
         const localBackup = localStorage.getItem('backupAppDB');
-        if(localBackup) {
-           setAppDB(JSON.parse(localBackup));
-           appDBRef.current = JSON.parse(localBackup);
-        } else {
-           setAppDB(DEFAULT_DB);
-           appDBRef.current = DEFAULT_DB;
-        }
+        if(localBackup) { setAppDB(JSON.parse(localBackup)); appDBRef.current = JSON.parse(localBackup); } 
+        else { setAppDB(DEFAULT_DB); appDBRef.current = DEFAULT_DB; }
       }
     }, (err) => {
       console.error("DB Sync Error:", err);
@@ -1886,21 +1834,16 @@ const App = () => {
     return () => unsub();
   }, [firebaseUser, appUser]);
   
-  useEffect(() => {
-      appDBRef.current = appDB;
-  }, [appDB]);
+  useEffect(() => { appDBRef.current = appDB; }, [appDB]);
 
   const saveAppDBToFirebase = async (newDB) => {
     try {
       await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'appDB'), newDB);
       return true;
     } catch (err) {
-      console.error("Failed to save appDB", err);
-      if (err.code === 'resource-exhausted' || err.message.includes('large') || err.message.includes('Limit')) {
+      if (err.code === 'resource-exhausted' || err.message.includes('large')) {
           setDialog({ type: 'alert', message: 'เกิดข้อผิดพลาด: ข้อมูลรูปภาพในฐานข้อมูลเต็มความจุ (เกิน 1MB) กรุณาลบรูปที่ไม่จำเป็นออกแล้วลองบันทึกใหม่' });
-      } else {
-          setDialog({ type: 'alert', message: 'เกิดข้อผิดพลาดในการบันทึกฐานข้อมูล: ' + err.message });
-      }
+      } else setDialog({ type: 'alert', message: 'เกิดข้อผิดพลาดในการบันทึกฐานข้อมูล: ' + err.message });
       return false;
     }
   };
@@ -1910,14 +1853,10 @@ const App = () => {
       processingRef.current = true;
       const queueToProcess = [...bgUploadQueue];
       setBgUploadProgress({ current: 0, total: queueToProcess.length, active: true });
-      
-      let successCount = 0;
-      let failCount = 0;
-      
+      let successCount = 0, failCount = 0;
       for (let i = 0; i < queueToProcess.length; i++) {
         const task = queueToProcess[i];
         setBgUploadProgress(p => ({ ...p, current: i + 1 }));
-        
         const compressedImg = await processImageFile(task.file, 400, 0.7, null);
         if (compressedImg) {
           try {
@@ -1932,98 +1871,52 @@ const App = () => {
                 return newDB;
               });
               successCount++;
-            } else { failCount++; }
-          } catch (err) { 
-              console.error("Task failed:", err);
-              failCount++; 
-          }
-        } else { failCount++; }
+            } else failCount++;
+          } catch (err) { failCount++; }
+        } else failCount++;
       }
-      
       setTimeout(() => {
         saveAppDBToFirebase(appDBRef.current);
         setDialog({ type: 'alert', message: `✅ อัปโหลดรูปภาพเบื้องหลังเสร็จสิ้น!\nสำเร็จ: ${successCount} รูป\nล้มเหลว: ${failCount} รูป` });
-        setBgUploadQueue([]); 
-        setBgUploadProgress({ current: 0, total: 0, active: false });
+        setBgUploadQueue([]); setBgUploadProgress({ current: 0, total: 0, active: false });
         processingRef.current = false;
       }, 1000);
     };
-
-    if (bgUploadQueue.length > 0 && !processingRef.current) {
-      processQueue();
-    }
+    if (bgUploadQueue.length > 0 && !processingRef.current) processQueue();
   }, [bgUploadQueue]);
-
-  const handleLogout = () => {
-    localStorage.removeItem('curtainAppUser');
-    setAppUser(null);
-  };
-
-  if (!appUser) return <LoginScreen onLogin={(user) => setAppUser(user)} isAuthReady={!!firebaseUser} />;
 
   const handleCreateNew = () => {
     setCurrentProjectId(Date.now().toString());
     const currentUserInfo = allAccounts.find(u => u.username === appUser.username) || appUser;
-    
     setProjectOwner(appUser.username); 
-
-    historyRef.current = [];
-    historyIndexRef.current = -1;
-
+    historyRef.current = []; historyIndexRef.current = -1;
     setGeneralInfo({
       surveyDate: new Date().toISOString().split('T')[0], confirmDate: '', installDates: [], location: '',
       customerName: '', customerPhone: '', agentName: '', agentPhone: '', customFabrics: [],
-      creatorName: currentUserInfo.name || currentUserInfo.username,
-      creatorSignature: currentUserInfo.signatureUrl || '',
-      terms: defaultTerms
+      creatorName: currentUserInfo.name || currentUserInfo.username, creatorSignature: currentUserInfo.signatureUrl || '', terms: defaultTerms
     });
-    setItems([]);
-    addItem();
-    setView('editor');
+    setItems([]); addItem(); setView('editor');
   };
 
   const handleEdit = (proj) => {
     setCurrentProjectId(proj.id);
-    
     const ownerAcc = allAccounts.find(u => u.username === proj.owner);
     let cName = proj.generalInfo?.creatorName;
     let cSig = proj.generalInfo?.creatorSignature;
-    
     if (ownerAcc) {
         if (!cName || cName === proj.owner) cName = ownerAcc.name || ownerAcc.username;
         if (!cSig) cSig = ownerAcc.signatureUrl || '';
     }
-
     setProjectOwner(proj.owner || appUser.username); 
-
-    historyRef.current = [];
-    historyIndexRef.current = -1;
-
+    historyRef.current = []; historyIndexRef.current = -1;
     let loadedTerms = proj.generalInfo?.terms || defaultTerms;
     if (!loadedTerms.includes('(D) สีสินค้าจริง')) {
-        if (loadedTerms.includes('(C) ค่าเดินทาง 1,500 บาท ใน กทม. (ต่างจังหวัดคิดตามระยะทาง)')) {
-            loadedTerms = loadedTerms.replace(
-                '(C) ค่าเดินทาง 1,500 บาท ใน กทม. (ต่างจังหวัดคิดตามระยะทาง)',
-                '(C) ค่าเดินทาง 1,500 บาท ใน กทม. (ต่างจังหวัดคิดตามระยะทาง)\n(D) สีสินค้าจริงอาจแตกต่างจากภาพแสดงผลเล็กน้อย เนื่องจากข้อจำกัดด้านการถ่ายภาพและหน้าจอแสดงผล'
-            );
-        } else {
-            loadedTerms += '\n(D) สีสินค้าจริงอาจแตกต่างจากภาพแสดงผลเล็กน้อย เนื่องจากข้อจำกัดด้านการถ่ายภาพและหน้าจอแสดงผล';
-        }
+        if (loadedTerms.includes('(C) ค่าเดินทาง 1,500 บาท ใน กทม.')) {
+            loadedTerms = loadedTerms.replace('(C) ค่าเดินทาง 1,500 บาท ใน กทม. (ต่างจังหวัดคิดตามระยะทาง)', '(C) ค่าเดินทาง 1,500 บาท ใน กทม. (ต่างจังหวัดคิดตามระยะทาง)\n(D) สีสินค้าจริงอาจแตกต่างจากภาพแสดงผลเล็กน้อย เนื่องจากข้อจำกัดด้านการถ่ายภาพและหน้าจอแสดงผล');
+        } else loadedTerms += '\n(D) สีสินค้าจริงอาจแตกต่างจากภาพแสดงผลเล็กน้อย เนื่องจากข้อจำกัดด้านการถ่ายภาพและหน้าจอแสดงผล';
     }
-
-    setGeneralInfo({ 
-       ...proj.generalInfo, 
-       customFabrics: proj.generalInfo?.customFabrics || [],
-       creatorName: cName || appUser.name || appUser.username,
-       creatorSignature: cSig || '',
-       terms: loadedTerms
-    });
-    const migratedItems = (proj.items || []).map(item => ({
-      ...item,
-      layers: item.layers || 2,
-      styleMain1: item.styleMain1 || item.styleMain || '',
-      styleAction1: item.styleAction1 || item.styleAction || ''
-    }));
+    setGeneralInfo({ ...proj.generalInfo, customFabrics: proj.generalInfo?.customFabrics || [], creatorName: cName || appUser.name || appUser.username, creatorSignature: cSig || '', terms: loadedTerms });
+    const migratedItems = (proj.items || []).map(item => ({ ...item, layers: item.layers || 2, styleMain1: item.styleMain1 || item.styleMain || '', styleAction1: item.styleAction1 || item.styleAction || '' }));
     setItems(migratedItems);
     if (migratedItems.length === 0) addItem();
     setView('editor');
@@ -2031,14 +1924,7 @@ const App = () => {
 
   const handleDelete = (id, e) => {
     e.stopPropagation();
-    setDialog({
-      type: 'confirm',
-      message: 'คุณต้องการลบใบงานนี้ใช่หรือไม่?',
-      onConfirm: async () => {
-        try { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'projects', id)); loadProjectsList(); } 
-        catch(err) { console.error(err); }
-      }
-    });
+    setDialog({ type: 'confirm', message: 'คุณต้องการลบใบงานนี้ใช่หรือไม่?', onConfirm: async () => { try { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'projects', id)); loadProjectsList(); } catch(err) { console.error(err); } } });
   };
 
   const saveData = async () => {
@@ -2046,18 +1932,14 @@ const App = () => {
     setSaving(true); setSaveStatus('กำลังบันทึก...');
     try {
       const pId = currentProjectId || Date.now().toString();
-      const projData = { 
-        generalInfo, items, updatedAt: new Date().toISOString(),
-        owner: projectOwner || appUser.username
-      };
-      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'projects', pId), projData);
+      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'projects', pId), { generalInfo, items, updatedAt: new Date().toISOString(), owner: projectOwner || appUser.username });
       setCurrentProjectId(pId);
       setSaveStatus('บันทึกสำเร็จ!'); setTimeout(() => setSaveStatus(''), 3000);
     } catch (err) { setSaveStatus('เกิดข้อผิดพลาด'); }
     setSaving(false);
   };
 
-  const printDocument = () => { window.print(); };
+  const printDocument = () => window.print();
 
   const handleSharePDF = () => {
     const originalTitle = document.title;
@@ -2072,128 +1954,80 @@ const App = () => {
     const val = e.target.value;
     if (!val) return;
     const u = allAccounts.find(acc => (acc.name || acc.username) === val);
-    
     setDialog({
-      type: 'confirm',
-      message: `ยืนยันการเปลี่ยนผู้จัดทำเป็น "${val}" ใช่หรือไม่?\n\n(การเปลี่ยนผู้จัดทำ จะโอนสิทธิ์ความเป็นเจ้าของงานให้พนักงานคนนี้ในหน้า Dashboard ทันที)`,
-      onConfirm: () => {
-        setGeneralInfo(prev => ({
-          ...prev,
-          creatorName: val,
-          creatorSignature: u ? (u.signatureUrl || '') : prev.creatorSignature
-        }));
-        if (u) setProjectOwner(u.username); 
-      }
+      type: 'confirm', message: `ยืนยันการเปลี่ยนผู้จัดทำเป็น "${val}" ใช่หรือไม่?\n\n(การเปลี่ยนผู้จัดทำ จะโอนสิทธิ์ความเป็นเจ้าของงานให้พนักงานคนนี้ในหน้า Dashboard ทันที)`,
+      onConfirm: () => { setGeneralInfo(prev => ({ ...prev, creatorName: val, creatorSignature: u ? (u.signatureUrl || '') : prev.creatorSignature })); if (u) setProjectOwner(u.username); }
     });
   };
 
-  const addInstallDate = () => { if (tempInstallDate && !generalInfo.installDates.includes(tempInstallDate)) { setGeneralInfo(prev => ({ ...prev, installDates: [...prev.installDates, tempInstallDate] })); setTempInstallDate(''); } };
-  const removeInstallDate = (date) => setGeneralInfo(prev => ({ ...prev, installDates: prev.installDates.filter(d => d !== date) }));
+  const addInstallDate = useCallback(() => { 
+      if (tempInstallDate && !generalInfo.installDates.includes(tempInstallDate)) { 
+          setGeneralInfo(prev => ({ ...prev, installDates: [...prev.installDates, tempInstallDate] })); setTempInstallDate(''); 
+      } 
+  }, [tempInstallDate, generalInfo.installDates]);
 
-  const addItem = () => {
+  const removeInstallDate = useCallback((date) => { setGeneralInfo(prev => ({ ...prev, installDates: prev.installDates.filter(d => d !== date) })); }, []);
+
+  const addItem = useCallback(() => {
     setItems(prev => [...prev, {
       id: Date.now().toString(), image: null, imageFit: 'fill', layers: 2,
       areas: [{ id: Date.now().toString() + '_a1', points: [], width: '', height: '', lineColor: '#EF4444', lineWidth: 2, fabrics: [], labelColor: '#EF4444', labelSize: 14, wPos: 'top', hPos: 'right', maskPct: 20, maskOpacity: 87, maskType: '', styleMain1: '', styleAction1: '', styleMain2: '', styleAction2: '' }],
       roomPos: '', styleMain1: '', styleAction1: '', styleMain2: '', styleAction2: '', tracks: [], bracket: '', accessories: [], hangStyle: '',
       marginLeft: '', customMarginLeft: '', marginRight: '', customMarginRight: '', marginTop: '', customMarginTop: '', marginBottom: '', customMarginBottom: '', note: ''
     }]);
-  };
+  }, []);
   
-  const removeItem = (id) => setItems(prev => prev.filter(item => item.id !== id));
+  const removeItem = useCallback((id) => setItems(prev => prev.filter(item => item.id !== id)), []);
   
-  const duplicateItem = (index) => {
-    const itemToDuplicate = items[index];
-    const newItem = JSON.parse(JSON.stringify(itemToDuplicate)); 
-    
-    newItem.id = Date.now().toString() + '_' + Math.random().toString(36).substr(2, 5);
-    newItem.areas = newItem.areas.map(area => ({
-      ...area,
-      id: Date.now().toString() + '_a' + Math.random().toString(36).substr(2, 5),
-      fabrics: area.fabrics.map(fab => ({
-        ...fab,
-        id: Date.now().toString() + '_f' + Math.random().toString(36).substr(2, 5)
-      }))
-    }));
-
+  const duplicateItem = useCallback((index) => {
     setItems(prev => {
-      const newItems = [...prev];
-      newItems.splice(index + 1, 0, newItem); 
-      return newItems;
+      const newItem = JSON.parse(JSON.stringify(prev[index])); 
+      newItem.id = Date.now().toString() + '_' + Math.random().toString(36).substr(2, 5);
+      newItem.areas = newItem.areas.map(area => ({ ...area, id: Date.now().toString() + '_a' + Math.random().toString(36).substr(2, 5), fabrics: area.fabrics.map(fab => ({ ...fab, id: Date.now().toString() + '_f' + Math.random().toString(36).substr(2, 5) })) }));
+      const newItems = [...prev]; newItems.splice(index + 1, 0, newItem); return newItems;
     });
-  };
+  }, []);
 
-  const moveItemUp = (index) => {
-    if (index === 0) return;
+  const moveItemUp = useCallback((index) => {
+    setItems(prev => { 
+      if (index === 0) return prev;
+      const newItems = [...prev]; [newItems[index - 1], newItems[index]] = [newItems[index], newItems[index - 1]]; return newItems; 
+    });
+  }, []);
+
+  const moveItemDown = useCallback((index) => {
     setItems(prev => {
-      const newItems = [...prev];
-      [newItems[index - 1], newItems[index]] = [newItems[index], newItems[index - 1]];
-      return newItems;
+      if (index === prev.length - 1) return prev;
+      const newItems = [...prev]; [newItems[index], newItems[index + 1]] = [newItems[index + 1], newItems[index]]; return newItems;
     });
-  };
+  }, []);
 
-  const moveItemDown = (index) => {
-    if (index === items.length - 1) return;
-    setItems(prev => {
-      const newItems = [...prev];
-      [newItems[index], newItems[index + 1]] = [newItems[index + 1], newItems[index]];
-      return newItems;
-    });
-  };
+  const handleItemChange = useCallback((id, field, value) => { setItems(prevItems => prevItems.map(item => item.id === id ? { ...item, [field]: value } : item)); }, []);
 
-  const handleItemChange = (id, field, value) => {
-    setItems(prevItems => prevItems.map(item => item.id === id ? { ...item, [field]: value } : item));
-  };
+  const updateAreaField = useCallback((itemId, areaId, field, value) => {
+    setItems(prevItems => prevItems.map(item => item.id === itemId ? { ...item, areas: item.areas.map(a => a.id === areaId ? { ...a, [field]: value } : a) } : item));
+  }, []);
 
-  const updateAreaField = (itemId, areaId, field, value) => {
-    setItems(prevItems => prevItems.map(item => item.id === itemId ? {
-      ...item,
-      areas: item.areas.map(a => a.id === areaId ? { ...a, [field]: value } : a)
-    } : item));
-  };
-
-  const handleLayerChange = (id, newLayerVal) => {
+  const handleLayerChange = useCallback((id, newLayerVal) => {
     setItems(prevItems => prevItems.map(item => {
-      if (item.id === id) {
-        if (newLayerVal === 1) return { ...item, layers: 1, styleMain2: '', styleAction2: '' };
-        return { ...item, layers: 2 };
-      }
+      if (item.id === id) return newLayerVal === 1 ? { ...item, layers: 1, styleMain2: '', styleAction2: '' } : { ...item, layers: 2 };
       return item;
     }));
-  };
+  }, []);
 
-  const addFabricToArea = (itemId, areaId) => {
-    setItems(prevItems => prevItems.map(item => item.id === itemId ? {
-      ...item,
-      areas: item.areas.map(a => a.id === areaId ? {
-        ...a, fabrics: [...a.fabrics, { id: Date.now().toString(), mainType: '', subType: '', name: '', color: '' }]
-      } : a)
-    } : item));
-  };
+  const addFabricToArea = useCallback((itemId, areaId) => {
+    setItems(prevItems => prevItems.map(item => item.id === itemId ? { ...item, areas: item.areas.map(a => a.id === areaId ? { ...a, fabrics: [...a.fabrics, { id: Date.now().toString(), mainType: '', subType: '', name: '', color: '' }] } : a) } : item));
+  }, []);
   
-  const updateFabric = (itemId, areaId, fabricId, field, value) => {
-    setItems(prevItems => prevItems.map(item => item.id === itemId ? {
-      ...item,
-      areas: item.areas.map(a => a.id === areaId ? {
-        ...a, fabrics: a.fabrics.map(f => f.id === fabricId ? { 
-          ...f, [field]: value, 
-          ...(field === 'mainType' ? {subType:'',name:'',color:''} : {}), 
-          ...(field === 'subType' ? {name:'',color:''} : {}), 
-          ...(field === 'name' ? {color:''} : {}) 
-        } : f)
-      } : a)
-    } : item));
-  };
+  const updateFabric = useCallback((itemId, areaId, fabricId, updates) => {
+    setItems(prevItems => prevItems.map(item => item.id === itemId ? { ...item, areas: item.areas.map(a => a.id === areaId ? { ...a, fabrics: a.fabrics.map(f => f.id === fabricId ? { ...f, ...updates } : f) } : a) } : item));
+  }, []);
   
-  const removeFabric = (itemId, areaId, fabricId) => {
-    setItems(prevItems => prevItems.map(item => item.id === itemId ? {
-      ...item,
-      areas: item.areas.map(a => a.id === areaId ? {
-        ...a, fabrics: a.fabrics.filter(f => f.id !== fabricId)
-      } : a)
-    } : item));
-  };
+  const removeFabric = useCallback((itemId, areaId, fabricId) => {
+    setItems(prevItems => prevItems.map(item => item.id === itemId ? { ...item, areas: item.areas.map(a => a.id === areaId ? { ...a, fabrics: a.fabrics.filter(f => f.id !== fabricId) } : a) } : item));
+  }, []);
 
-  const handleMultiSelect = (itemId, field, value) => {
+  const handleMultiSelect = useCallback((itemId, field, value) => {
     if (!value.trim()) return;
     setItems(prevItems => prevItems.map(item => {
       if (item.id === itemId) {
@@ -2202,23 +2036,14 @@ const App = () => {
       }
       return item;
     }));
-  };
+  }, []);
 
   const getGroupedAreas = (item) => {
     const groups = {};
     item.areas.forEach((area, idx) => {
-      const w = area.width || '-';
-      const h = area.height || '-';
-      const s1 = area.styleMain1 || item.styleMain1 || item.styleMain || '-';
-      const a1 = area.styleAction1 || item.styleAction1 || item.styleAction || '-';
-      const s2 = item.layers === 2 ? (area.styleMain2 || item.styleMain2 || '-') : '';
-      const a2 = item.layers === 2 ? (area.styleAction2 || item.styleAction2 || '-') : '';
-      
+      const w = area.width || '-', h = area.height || '-', s1 = area.styleMain1 || item.styleMain1 || item.styleMain || '-', a1 = area.styleAction1 || item.styleAction1 || item.styleAction || '-', s2 = item.layers === 2 ? (area.styleMain2 || item.styleMain2 || '-') : '', a2 = item.layers === 2 ? (area.styleAction2 || item.styleAction2 || '-') : '';
       let key = `${w}|${h}###${s1}|${a1}|${s2}|${a2}`;
-      
-      if (!groups[key]) {
-        groups[key] = { labelNums: [], w, h, s1, a1, s2, a2 };
-      }
+      if (!groups[key]) groups[key] = { labelNums: [], w, h, s1, a1, s2, a2 };
       groups[key].labelNums.push(idx + 1);
     });
     return Object.values(groups);
@@ -2233,10 +2058,12 @@ const App = () => {
 
   const filteredProjects = projectsList.filter(proj => {
     const matchSearch = proj.generalInfo?.customerName?.toLowerCase().includes(searchQuery.toLowerCase()) || false;
-    const passSearch = searchQuery.trim() === '' || matchSearch;
-    const passFilter = filterEmployee === '' || proj.owner === filterEmployee;
-    return passSearch && passFilter;
+    return (searchQuery.trim() === '' || matchSearch) && (filterEmployee === '' || proj.owner === filterEmployee);
   });
+
+  const handleLogout = () => { localStorage.removeItem('curtainAppUser'); setAppUser(null); };
+
+  if (!appUser) return <LoginScreen onLogin={setAppUser} isAuthReady={!!firebaseUser} />;
 
   if (view === 'dashboard') {
     return (
@@ -2258,23 +2085,10 @@ const App = () => {
           <div className="flex flex-col md:flex-row justify-between items-center mb-4 gap-3">
              <h2 className="text-xl font-bold text-gray-700 whitespace-nowrap mr-auto w-full md:w-auto">รายการใบงานทั้งหมด ({filteredProjects.length})</h2>
              <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto">
-               <input 
-                 type="text" 
-                 placeholder="🔍 ค้นหาชื่อลูกค้า..." 
-                 value={searchQuery}
-                 onChange={e => setSearchQuery(e.target.value)}
-                 className="border border-gray-300 px-3 py-2 rounded-lg text-sm focus:outline-blue-500 shadow-sm w-full sm:w-64"
-               />
+               <input type="text" placeholder="🔍 ค้นหาชื่อลูกค้า..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="border border-gray-300 px-3 py-2 rounded-lg text-sm focus:outline-blue-500 shadow-sm w-full sm:w-64" />
                {appUser.role === 'admin' && (
-                 <select 
-                   value={filterEmployee}
-                   onChange={e => setFilterEmployee(e.target.value)}
-                   className="border border-gray-300 px-3 py-2 rounded-lg text-sm focus:outline-blue-500 shadow-sm w-full sm:w-auto"
-                 >
-                   <option value="">- พนักงานทั้งหมด -</option>
-                   {allAccounts.map(acc => (
-                     <option key={acc.id} value={acc.username}>{acc.name || acc.username}</option>
-                   ))}
+                 <select value={filterEmployee} onChange={e => setFilterEmployee(e.target.value)} className="border border-gray-300 px-3 py-2 rounded-lg text-sm focus:outline-blue-500 shadow-sm w-full sm:w-auto">
+                   <option value="">- พนักงานทั้งหมด -</option>{allAccounts.map(acc => <option key={acc.id} value={acc.username}>{acc.name || acc.username}</option>)}
                  </select>
                )}
                <button onClick={handleCreateNew} className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-lg flex items-center justify-center font-bold shadow-md transition-colors w-full sm:w-auto shrink-0"><Plus size={18} className="mr-1.5"/> สร้างใบงาน</button>
@@ -2289,17 +2103,11 @@ const App = () => {
                    <div className="flex justify-between items-start mb-2">
                      <div className="flex items-center gap-3">
                        <div className="bg-blue-100 p-3 rounded-full text-blue-600"><FileText size={24}/></div>
-                       <div>
-                         <h3 className="font-bold text-gray-800 break-words w-48 text-base">{proj.generalInfo?.customerName || 'ไม่มีชื่อลูกค้า'}</h3>
-                         <p className="text-xs text-gray-500 mt-1">{proj.generalInfo?.location || 'ไม่มีข้อมูลสถานที่'}</p>
-                       </div>
+                       <div><h3 className="font-bold text-gray-800 break-words w-48 text-base">{proj.generalInfo?.customerName || 'ไม่มีชื่อลูกค้า'}</h3><p className="text-xs text-gray-500 mt-1">{proj.generalInfo?.location || 'ไม่มีข้อมูลสถานที่'}</p></div>
                      </div>
                      <button onClick={(e)=>handleDelete(proj.id, e)} className="text-red-400 hover:text-red-600 p-1.5 bg-red-50 rounded opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={16}/></button>
                    </div>
-                   <div className="text-xs text-gray-500 mt-4 border-t pt-3 flex justify-between">
-                     <span>ผู้ทำ: <span className="font-bold text-gray-700">{creatorNameDisplay}</span></span>
-                     <span>อัปเดต: {new Date(proj.updatedAt).toLocaleDateString('th-TH')}</span>
-                   </div>
+                   <div className="text-xs text-gray-500 mt-4 border-t pt-3 flex justify-between"><span>ผู้ทำ: <span className="font-bold text-gray-700">{creatorNameDisplay}</span></span><span>อัปเดต: {new Date(proj.updatedAt).toLocaleDateString('th-TH')}</span></div>
                  </div>
                )
              })}
@@ -2320,16 +2128,9 @@ const App = () => {
 
       {bgUploadProgress.active && (
         <div className="fixed bottom-6 left-6 bg-indigo-900 text-white p-4 rounded-lg shadow-2xl z-[9999999] flex flex-col gap-2 w-72 border border-indigo-700 no-print transition-all">
-            <div className="flex items-center justify-between">
-                <span className="font-bold text-sm flex items-center"><Upload size={14} className="mr-2 animate-bounce"/> อัปโหลดรูปลงฐานข้อมูล...</span>
-            </div>
-            <div className="w-full bg-indigo-950 rounded-full h-2.5 overflow-hidden border border-indigo-800">
-                <div className="bg-emerald-400 h-full rounded-full transition-all duration-500 ease-out" style={{ width: `${(bgUploadProgress.current / bgUploadProgress.total) * 100}%` }}></div>
-            </div>
-            <div className="flex justify-between text-xs font-bold text-indigo-200">
-                <span>กำลังประมวลผล (แอบทำเบื้องหลัง)</span>
-                <span>{bgUploadProgress.current} / {bgUploadProgress.total}</span>
-            </div>
+            <div className="flex items-center justify-between"><span className="font-bold text-sm flex items-center"><Upload size={14} className="mr-2 animate-bounce"/> อัปโหลดรูปลงฐานข้อมูล...</span></div>
+            <div className="w-full bg-indigo-950 rounded-full h-2.5 overflow-hidden border border-indigo-800"><div className="bg-emerald-400 h-full rounded-full transition-all duration-500 ease-out" style={{ width: `${(bgUploadProgress.current / bgUploadProgress.total) * 100}%` }}></div></div>
+            <div className="flex justify-between text-xs font-bold text-indigo-200"><span>กำลังประมวลผล (แอบทำเบื้องหลัง)</span><span>{bgUploadProgress.current} / {bgUploadProgress.total}</span></div>
         </div>
       )}
 
@@ -2341,51 +2142,25 @@ const App = () => {
           .print-hidden { display: none !important; }
           .print-block { display: block !important; }
           .print-flex { display: flex !important; }
-          
           .avoid-break { page-break-inside: avoid !important; }
-          
-          .print-center-page {
-            height: 100vh;
-            width: 100%;
-            display: flex !important;
-            flex-direction: column !important;
-            justify-content: center !important;
-            align-items: center !important;
-            page-break-after: always !important;
-            page-break-inside: avoid !important;
-            box-sizing: border-box;
-          }
-          
-          .print-content-wrapper {
-            width: 100% !important;
-            max-width: 277mm !important;
-          }
-          
-          .print-transform-none { transform: none !important; }
+          .print-center-page { height: 100vh; width: 100%; display: flex !important; flex-direction: column !important; justify-content: center !important; align-items: center !important; page-break-after: always !important; page-break-inside: avoid !important; box-sizing: border-box; }
+          .print-content-wrapper { width: 100% !important; max-width: 277mm !important; }
           .whitespace-pre-wrap { white-space: pre-wrap !important; word-break: break-word !important; }
           select { display: none !important; }
         }
       `}</style>
 
       <div className="max-w-[1200px] mx-auto bg-white shadow-lg p-4 md:p-8 rounded-sm relative z-0 print:shadow-none print:p-0 print:bg-transparent w-full print:max-w-none">
-        
         <div className="print-center-page w-full">
           <div className="print-content-wrapper w-full">
             <div className="mb-6 border-b-2 border-gray-800 pb-3 flex justify-between items-center avoid-break relative">
               <button onClick={()=>{saveData(); setView('dashboard');}} className="absolute -left-12 md:-left-20 top-1/2 transform -translate-y-1/2 no-print bg-gray-200 hover:bg-gray-300 text-gray-700 p-2 rounded-full shadow-md transition-colors z-10"><ArrowLeft size={24}/></button>
-              
               <div className="w-1/3 text-left flex items-center gap-4">
-                <img 
-                  src={logoSrc} 
-                  alt="Logo" 
-                  className="h-10 md:h-14 lg:h-16 object-contain" 
-                  style={logoSrc.startsWith('data:') ? {} : { mixBlendMode: 'multiply', filter: 'contrast(1.1) brightness(1.1)' }} 
-                />
+                <img src={logoSrc} alt="Logo" className="h-10 md:h-14 lg:h-16 object-contain" style={logoSrc.startsWith('data:') ? {} : { mixBlendMode: 'multiply', filter: 'contrast(1.1) brightness(1.1)' }} />
                 <div className="no-print">
                   {appUser.role === 'admin' && <button onClick={()=>setShowDBSettings(true)} className="bg-gray-700 text-white px-3 py-2 rounded flex items-center hover:bg-gray-800 text-xs shadow font-bold transition-colors w-fit"><Settings size={16} className="mr-1.5"/> <span className="hidden md:inline">ฐานข้อมูล</span></button>}
                 </div>
               </div>
-              
               <h1 className="text-xl md:text-2xl font-bold text-gray-800 w-1/3 text-center">ใบสรุปงานติดตั้งผ้าม่าน</h1>
               <div className="w-1/3 text-right"></div>
             </div>
@@ -2402,36 +2177,16 @@ const App = () => {
                       <div className="flex items-center ml-auto no-print"><input type="date" value={tempInstallDate} onChange={(e)=>setTempInstallDate(e.target.value)} className="border rounded px-2 py-1 text-xs outline-none focus:border-blue-500"/><button onClick={addInstallDate} className="bg-blue-100 text-blue-700 p-1.5 rounded ml-1 hover:bg-blue-200 transition-colors"><Plus size={14}/></button></div>
                     </div>
                   </div>
-                  <div className="flex flex-col">
-                    <span className="font-bold text-gray-700">สถานที่ติดตั้ง :</span>
-                    <textarea name="location" value={generalInfo.location} onChange={handleGeneralChange} rows="2" className="w-full border border-gray-300 rounded p-2 mt-1 outline-none focus:border-blue-500 print-hidden resize-none bg-white text-sm font-medium"></textarea>
-                    <div className="hidden print-block w-full mt-1 text-[15px] font-bold whitespace-pre-wrap text-black border-b border-gray-300 pb-1">{generalInfo.location || '-'}</div>
-                  </div>
+                  <div className="flex flex-col"><span className="font-bold text-gray-700">สถานที่ติดตั้ง :</span><textarea name="location" value={generalInfo.location} onChange={handleGeneralChange} rows="2" className="w-full border border-gray-300 rounded p-2 mt-1 outline-none focus:border-blue-500 print-hidden resize-none bg-white text-sm font-medium"></textarea><div className="hidden print-block w-full mt-1 text-[15px] font-bold whitespace-pre-wrap text-black border-b border-gray-300 pb-1">{generalInfo.location || '-'}</div></div>
                 </div>
-                
                 <div className="mt-8 flex flex-col items-center justify-end relative h-24">
-                  {generalInfo.creatorSignature && (
-                    <div className="h-12 w-full flex justify-center items-end mb-1">
-                      <img src={optImg(generalInfo.creatorSignature, 300)} className="max-h-full object-contain mix-blend-multiply" alt="signature" />
-                    </div>
-                  )}
+                  {generalInfo.creatorSignature && <div className="h-12 w-full flex justify-center items-end mb-1"><img src={optImg(generalInfo.creatorSignature, 300)} className="max-h-full object-contain mix-blend-multiply" alt="signature" /></div>}
                   {appUser.role === 'admin' ? (
-                    <select 
-                       value={generalInfo.creatorName || ''} 
-                       onChange={handleCreatorChange} 
-                       className="border-b border-gray-400 w-48 text-center text-[15px] font-bold text-blue-800 outline-none appearance-none bg-transparent cursor-pointer print-hidden relative z-10 pb-0.5"
-                    >
-                      <option value="">- ระบุผู้จัดทำ -</option>
-                      {allAccounts.map(a => <option key={a.id} value={a.name || a.username}>{a.name || a.username}</option>)}
+                    <select value={generalInfo.creatorName || ''} onChange={handleCreatorChange} className="border-b border-gray-400 w-48 text-center text-[15px] font-bold text-blue-800 outline-none appearance-none bg-transparent cursor-pointer print-hidden relative z-10 pb-0.5">
+                      <option value="">- ระบุผู้จัดทำ -</option>{allAccounts.map(a => <option key={a.id} value={a.name || a.username}>{a.name || a.username}</option>)}
                     </select>
-                  ) : (
-                    <div className="border-b border-gray-400 w-48 text-center text-[15px] font-bold text-blue-800 print-hidden relative z-10 pb-0.5">
-                      {displayCreatorName}
-                    </div>
-                  )}
-                  <div className="hidden print-block w-48 text-center text-[15px] font-bold border-b border-gray-400 pb-0.5 text-black relative z-10">
-                    {displayCreatorName}
-                  </div>
+                  ) : <div className="border-b border-gray-400 w-48 text-center text-[15px] font-bold text-blue-800 print-hidden relative z-10 pb-0.5">{displayCreatorName}</div>}
+                  <div className="hidden print-block w-48 text-center text-[15px] font-bold border-b border-gray-400 pb-0.5 text-black relative z-10">{displayCreatorName}</div>
                   <p className="text-gray-600 text-sm font-bold mt-1">ผู้จัดทำ/เจ้าของงาน</p>
                 </div>
               </div>
@@ -2504,26 +2259,13 @@ const App = () => {
                   <div className="absolute top-0 left-0 bg-gray-800 text-white px-4 py-1.5 text-sm font-bold z-10 rounded-br">รายการที่ {index + 1}</div>
                   
                   <div className="no-print absolute -top-4 right-0 sm:-right-2 flex gap-1.5 z-30">
-                    {index > 0 && (
-                      <button onClick={() => moveItemUp(index)} className="bg-gray-700 text-white rounded-full p-2 hover:bg-gray-800 shadow-md transition-transform hover:scale-110" title="เลื่อนหน้าต่างขึ้น">
-                        <ChevronUp size={16} />
-                      </button>
-                    )}
-                    {index < items.length - 1 && (
-                      <button onClick={() => moveItemDown(index)} className="bg-gray-700 text-white rounded-full p-2 hover:bg-gray-800 shadow-md transition-transform hover:scale-110" title="เลื่อนหน้าต่างลง">
-                        <ChevronDown size={16} />
-                      </button>
-                    )}
-                    <button onClick={() => duplicateItem(index)} className="bg-blue-500 text-white rounded-full p-2 hover:bg-blue-600 shadow-md transition-transform hover:scale-110" title="ทำสำเนาหน้าต่างนี้">
-                      <Copy size={16} />
-                    </button>
-                    <button onClick={() => removeItem(item.id)} className="bg-red-500 text-white rounded-full p-2 hover:bg-red-600 shadow-md transition-transform hover:scale-110" title="ลบหน้าต่าง">
-                      <Trash2 size={16} />
-                    </button>
+                    {index > 0 && <button onClick={() => moveItemUp(index)} className="bg-gray-700 text-white rounded-full p-2 hover:bg-gray-800 shadow-md transition-transform hover:scale-110" title="เลื่อนหน้าต่างขึ้น"><ChevronUp size={16} /></button>}
+                    {index < items.length - 1 && <button onClick={() => moveItemDown(index)} className="bg-gray-700 text-white rounded-full p-2 hover:bg-gray-800 shadow-md transition-transform hover:scale-110" title="เลื่อนหน้าต่างลง"><ChevronDown size={16} /></button>}
+                    <button onClick={() => duplicateItem(index)} className="bg-blue-500 text-white rounded-full p-2 hover:bg-blue-600 shadow-md transition-transform hover:scale-110" title="ทำสำเนาหน้าต่างนี้"><Copy size={16} /></button>
+                    <button onClick={() => removeItem(item.id)} className="bg-red-500 text-white rounded-full p-2 hover:bg-red-600 shadow-md transition-transform hover:scale-110" title="ลบหน้าต่าง"><Trash2 size={16} /></button>
                   </div>
 
                   <div className="border border-gray-300 flex flex-col lg:flex-row print:flex-row h-auto lg:h-[750px] print:h-[185mm] mt-8 md:mt-0 bg-white relative overflow-hidden w-full box-border">
-                    
                     <div className="w-full lg:w-[70%] print:w-[70%] min-h-[400px] h-[50vh] sm:h-[60vh] lg:h-full print:h-full border-b lg:border-b-0 print:border-b-0 lg:border-r print:border-r border-gray-300 flex flex-col bg-white relative z-20">
                       
                       <div className="flex-1 w-full border-b border-gray-300 flex flex-col relative bg-gray-100 shrink-0 overflow-hidden">
@@ -2532,45 +2274,15 @@ const App = () => {
                       
                       <div className="h-[25%] lg:h-[30%] print:h-[30%] min-h-[100px] w-full p-2 bg-gray-50 flex items-center overflow-x-auto">
                         <div className="w-full h-full min-w-[350px] md:min-w-[400px] grid grid-cols-4 gap-1.5 sm:gap-2 print:gap-4">
-                          
-                          <div className="flex flex-col items-center bg-white border border-gray-200 p-1.5 sm:p-2 rounded shadow-sm h-full justify-between overflow-hidden">
-                            <span className="text-[11px] sm:text-[13px] font-bold text-gray-800 w-full text-center mb-1 sm:mb-2 shrink-0">รูปแบบม่าน</span>
-                            <div className="flex-1 w-full bg-gray-50 border border-gray-100 flex items-center justify-center rounded overflow-hidden p-0 relative mb-1 sm:mb-2">
-                              {styleImg1 ? <img src={optImg(styleImg1, 400)} className="w-full h-full object-cover" /> : <div dangerouslySetInnerHTML={{__html: SVGS.style_default}} className="w-full h-full" />}
-                            </div>
-                            <AutoFitText text={`${sMain1 || '-'} ${item.layers === 2 ? `/ ${sMain2 || '-'}` : ''}`} className="text-blue-800 print:text-black" />
-                          </div>
-
-                          <div className="flex flex-col items-center bg-white border border-gray-200 p-1.5 sm:p-2 rounded shadow-sm h-full justify-between overflow-hidden">
-                            <span className="text-[11px] sm:text-[13px] font-bold text-gray-800 w-full text-center mb-1 sm:mb-2 shrink-0">{txtMain || 'ชั้นที่ 1'}</span>
-                            <div className="flex-1 w-full border border-gray-100 flex items-center justify-center rounded overflow-hidden bg-gray-50 p-0 mb-1 sm:mb-2">
-                              {imgMain ? <img src={optImg(imgMain, 400)} className="w-full h-full object-cover" /> : <span className="text-[10px] text-gray-400">-</span>}
-                            </div>
-                            <AutoFitText text={colMain || '-'} className="text-gray-700" />
-                          </div>
-
-                          <div className={`flex flex-col items-center bg-white border border-gray-200 p-1.5 sm:p-2 rounded shadow-sm h-full justify-between overflow-hidden ${item.layers === 1 ? 'opacity-40 print:opacity-50' : ''}`}>
-                            <span className="text-[11px] sm:text-[13px] font-bold text-gray-800 w-full text-center mb-1 sm:mb-2 shrink-0">{item.layers === 2 ? (txtSheer || 'ชั้นที่ 2') : 'ชั้นที่ 2'}</span>
-                            <div className="flex-1 w-full border border-gray-100 flex items-center justify-center rounded overflow-hidden bg-gray-50 p-0 mb-1 sm:mb-2">
-                              {item.layers === 2 && imgSheer ? <img src={optImg(imgSheer, 400)} className="w-full h-full object-cover" /> : <span className="text-[10px] text-gray-400">-</span>}
-                            </div>
-                            <AutoFitText text={item.layers === 2 ? (colSheer || '-') : '-'} className="text-gray-700" />
-                          </div>
-
-                          <div className="flex flex-col items-center bg-white border border-gray-200 p-1.5 sm:p-2 rounded shadow-sm h-full justify-between overflow-hidden">
-                            <span className="text-[11px] sm:text-[13px] font-bold text-gray-800 w-full text-center mb-1 sm:mb-2 shrink-0">ระยะชายม่าน</span>
-                            <div className="flex-1 w-full bg-gray-50 border border-gray-100 flex items-center justify-center rounded overflow-hidden p-0 mb-1 sm:mb-2">
-                              {marginImg ? <img src={optImg(marginImg, 400)} className="w-full h-full object-cover" /> : <span className="text-[10px] text-gray-400">-</span>}
-                            </div>
-                            <AutoFitText text={item.marginBottom || '-'} className="text-gray-700" />
-                          </div>
-
+                          <InfoCard title="รูปแบบม่าน" imgUrl={styleImg1} text1={`${sMain1 || '-'} ${item.layers === 2 ? `/ ${sMain2 || '-'}` : ''}`} />
+                          <InfoCard title={txtMain || 'ชั้นที่ 1'} imgUrl={imgMain} text1={colMain || '-'} />
+                          <InfoCard title={item.layers === 2 ? (txtSheer || 'ชั้นที่ 2') : 'ชั้นที่ 2'} imgUrl={item.layers === 2 ? imgSheer : null} text1={item.layers === 2 ? (colSheer || '-') : '-'} isDim={item.layers === 1} />
+                          <InfoCard title="ระยะชายม่าน" imgUrl={marginImg} text1={item.marginBottom || '-'} />
                         </div>
                       </div>
                     </div>
 
                     <div className="w-full lg:w-[30%] print:w-[30%] text-xs flex flex-col bg-white overflow-y-auto print:overflow-visible min-h-[400px] lg:h-full print:h-auto relative z-10 print:justify-start">
-                      
                       <div className="bg-gray-800 text-white p-3 print:bg-white print:text-black print:p-3 print:pb-0 flex flex-col shrink-0">
                         <span className="mb-1 text-gray-300 print-hidden font-bold text-xs">ห้อง / ตำแหน่ง :</span>
                         <textarea value={item.roomPos} onChange={(e)=>handleItemChange(item.id, 'roomPos', e.target.value)} className="w-full bg-transparent outline-none border-b border-gray-500 focus:border-white resize-none text-sm font-bold leading-tight print-hidden placeholder-gray-400 text-yellow-300" placeholder="ระบุห้อง เช่น ชั้น 1 / โถงกลม บานที่ 1" rows="2" />
@@ -2578,7 +2290,6 @@ const App = () => {
                       </div>
                       
                       <div className="p-3 print:p-2 flex flex-col justify-start gap-4 print:gap-3 h-full print:h-auto print:justify-start">
-                        
                         <div className="border border-gray-300 p-2 rounded bg-gray-50 no-print">
                           <div className="flex justify-between items-center mb-2 border-b border-gray-300 pb-1">
                             <span className="font-bold text-gray-800 text-[14px]">รายละเอียดวัสดุ/ผ้า</span>
@@ -2589,87 +2300,9 @@ const App = () => {
                             <div className="mb-3 border-l-[3px] border-blue-500 pl-2 pb-2 border-b border-gray-200" key={area.id}>
                               <div className="font-bold text-blue-800 mb-1.5 flex justify-between items-center bg-blue-50 px-1.5 py-1 rounded text-[12px]">
                                 <span>บานที่ {aIdx + 1} <span className="font-normal">(ก:{area.width||'-'} ส:{area.height||'-'})</span></span>
-                                <div className="flex items-center gap-2">
-                                  {area.fabrics.length < (item.layers || 2) && (
-                                    <button onClick={()=>addFabricToArea(item.id, area.id)} className="text-blue-600 hover:text-blue-800 no-print flex items-center bg-white px-2 py-0.5 border border-blue-200 shadow-sm rounded text-[10px] transition-colors"><Plus size={12} className="mr-0.5"/> เพิ่มผ้า</button>
-                                  )}
-                                </div>
+                                {area.fabrics.length < (item.layers || 2) && <button onClick={()=>addFabricToArea(item.id, area.id)} className="text-blue-600 hover:text-blue-800 no-print flex items-center bg-white px-2 py-0.5 border border-blue-200 shadow-sm rounded text-[10px] transition-colors"><Plus size={12} className="mr-0.5"/> เพิ่มผ้า</button>}
                               </div>
-                              {area.fabrics.map((fab) => {
-                                const isCustom = fab.mainType === 'ผ้านอกระบบ (เฉพาะงานนี้)';
-                                const isCurtain = fab.mainType === 'ผ้าม่าน';
-                                const mainTypeOptions = [...Object.keys(appDB.curtainTypes || {}), ...(generalInfo.customFabrics?.length > 0 ? ['ผ้านอกระบบ (เฉพาะงานนี้)'] : [])];
-                                
-                                let subTypeOptions = []; 
-                                let nameOptions = []; 
-                                let colorOptions = [];
-                                
-                                let curtainModels = [];
-                                if (isCurtain && appDB.curtainTypes['ผ้าม่าน']) {
-                                    Object.entries(appDB.curtainTypes['ผ้าม่าน']).forEach(([sT, mods]) => {
-                                        Object.keys(mods).forEach(mName => curtainModels.push({ modelName: mName, subType: sT }));
-                                    });
-                                    curtainModels.sort((a,b) => a.modelName.localeCompare(b.modelName));
-                                }
-
-                                if (isCustom) {
-                                  const cFabs = generalInfo.customFabrics || [];
-                                  subTypeOptions = [...new Set(cFabs.map(f=>f.subType))].filter(Boolean).sort((a,b)=>a.localeCompare(b));
-                                  nameOptions = [...new Set(cFabs.filter(f=>f.subType === fab.subType).map(f=>f.name))].filter(Boolean).sort((a,b)=>a.localeCompare(b));
-                                  colorOptions = [...new Set(cFabs.filter(f=>f.subType === fab.subType && f.name === fab.name).map(f=>f.color))].filter(Boolean).sort((a,b)=>a.localeCompare(b));
-                                } else if (isCurtain) {
-                                  nameOptions = curtainModels.map(m => m.modelName);
-                                  const matchModel = curtainModels.find(m => m.modelName === fab.name);
-                                  if (matchModel) {
-                                      colorOptions = Object.keys(appDB.curtainTypes['ผ้าม่าน'][matchModel.subType][fab.name] || {}).sort();
-                                  }
-                                } else {
-                                  subTypeOptions = fab.mainType ? Object.keys(appDB.curtainTypes[fab.mainType] || {}).sort((a,b)=>a.localeCompare(b)) : [];
-                                  nameOptions = fab.subType ? Object.keys(appDB.curtainTypes[fab.mainType]?.[fab.subType] || {}).sort((a,b)=>a.localeCompare(b)) : [];
-                                  colorOptions = fab.name ? Object.keys(appDB.curtainTypes[fab.mainType]?.[fab.subType]?.[fab.name] || {}).sort((a,b)=>a.localeCompare(b)) : [];
-                                }
-
-                                const nameListId = `names-${item.id}-${area.id}-${fab.id}`;
-                                const colorListId = `colors-${item.id}-${area.id}-${fab.id}`;
-
-                                return (
-                                  <div key={fab.id} className="flex flex-col gap-1.5 mb-1.5 bg-white p-1.5 border border-gray-200 rounded relative pr-5 shadow-sm">
-                                    <button onClick={()=>removeFabric(item.id, area.id, fab.id)} className="absolute top-1 right-1 text-red-500 hover:bg-red-50 rounded no-print transition-colors"><X size={14}/></button>
-                                    <div className="flex flex-col gap-1.5">
-                                      <div className="flex gap-1.5">
-                                        <select value={fab.mainType} onChange={(e)=>updateFabric(item.id, area.id, fab.id, 'mainType', e.target.value)} className={`border-b border-gray-300 outline-none text-[11px] bg-transparent font-bold ${isCustom ? 'text-indigo-600' : 'text-gray-700'} ${isCurtain ? 'w-full' : 'w-1/2'}`}>
-                                          <option value="">-หมวดหมู่-</option>{mainTypeOptions.map(o=><option key={o} value={o}>{o}</option>)}
-                                        </select>
-                                        {!isCurtain && (
-                                            <select value={fab.subType} onChange={(e)=>updateFabric(item.id, area.id, fab.id, 'subType', e.target.value)} className="w-1/2 border-b border-gray-300 outline-none text-[11px] bg-transparent font-bold text-indigo-700" disabled={!fab.mainType}>
-                                              <option value="">-ประเภทม่าน-</option>{subTypeOptions.map(o=><option key={o} value={o}>{o}</option>)}
-                                            </select>
-                                        )}
-                                      </div>
-                                      <div className="flex gap-1.5">
-                                        <div className="w-1/2 relative">
-                                          <input list={nameListId} value={fab.name} onChange={(e) => {
-                                             const val = e.target.value.toUpperCase();
-                                             if (isCurtain) {
-                                                 const match = curtainModels.find(m => m.modelName === val);
-                                                 const sType = match ? match.subType : fab.subType;
-                                                 setItems(prev => prev.map(it => it.id === item.id ? { ...it, areas: it.areas.map(a => a.id === area.id ? { ...a, fabrics: a.fabrics.map(f => f.id === fab.id ? { ...f, name: val, subType: sType, color: '' } : f) } : a) } : it));
-                                             } else {
-                                                 updateFabric(item.id, area.id, fab.id, 'name', val);
-                                             }
-                                          }} className="w-full border-b border-gray-300 outline-none text-[11px] bg-transparent font-medium" disabled={!fab.mainType || (!isCurtain && !fab.subType)} placeholder="-พิมพ์ค้นหารุ่น-"/>
-                                          <datalist id={nameListId}>{nameOptions.map(o=><option key={o} value={o}/>)}</datalist>
-                                        </div>
-                                        <div className="w-1/2 relative">
-                                          <input list={colorListId} value={fab.color} onChange={(e)=>updateFabric(item.id, area.id, fab.id, 'color', e.target.value)} className="w-full border-b border-gray-300 outline-none text-[11px] bg-transparent font-medium text-gray-600" disabled={!fab.name} placeholder="-พิมพ์ค้นหาสี-"/>
-                                          <datalist id={colorListId}>{colorOptions.map(o=><option key={o} value={o}/>)}</datalist>
-                                        </div>
-                                      </div>
-                                    </div>
-                                  </div>
-                                )
-                              })}
-                              
+                              {area.fabrics.map((fab) => <FabricSelector key={fab.id} item={item} area={area} fab={fab} appDB={appDB} generalInfo={generalInfo} updateFabric={updateFabric} removeFabric={removeFabric} />)}
                               <div className="flex flex-col gap-1.5 mt-2 bg-indigo-50/50 p-2 rounded border border-indigo-100">
                                 <span className="font-bold text-[10px] text-indigo-800 mb-0.5">รูปแบบการทำงาน (กำหนดเฉพาะบานนี้)</span>
                                 <div className="flex gap-1.5 items-center">
@@ -2693,14 +2326,10 @@ const App = () => {
                           <span className="font-bold text-gray-800 text-[14px] border-b border-gray-800 pb-1 mb-2 block">รูปแบบและขนาดม่าน</span>
                           {getGroupedAreas(item).map((grp, gIdx) => (
                              <div key={gIdx} className="mb-3 pl-2 border-l-[3px] border-gray-800">
-                                <span className="font-bold text-black text-[13px] block mb-1">
-                                  {formatBaanLabel(grp.labelNums, item.areas.length)} : <span className="font-normal">ก:{grp.w} ส:{grp.h}</span>
-                                </span>
+                                <span className="font-bold text-black text-[13px] block mb-1">{formatBaanLabel(grp.labelNums, item.areas.length)} : <span className="font-normal">ก:{grp.w} ส:{grp.h}</span></span>
                                 <div className="text-[12px] leading-snug">
                                    <span className="text-gray-800 block"><span className="font-bold">ชั้นที่ 1:</span> {grp.s1} {grp.a1 !== '-' ? `/ ${grp.a1}` : ''}</span>
-                                   {item.layers === 2 && (
-                                      <span className="text-gray-800 block mt-0.5"><span className="font-bold">ชั้นที่ 2:</span> {grp.s2} {grp.a2 !== '-' ? `/ ${grp.a2}` : ''}</span>
-                                   )}
+                                   {item.layers === 2 && <span className="text-gray-800 block mt-0.5"><span className="font-bold">ชั้นที่ 2:</span> {grp.s2} {grp.a2 !== '-' ? `/ ${grp.a2}` : ''}</span>}
                                 </div>
                              </div>
                           ))}
@@ -2742,16 +2371,8 @@ const App = () => {
                           </div>
 
                           <div className="grid grid-cols-2 gap-3 mt-1">
-                             <div className="flex flex-col">
-                               <span className="font-bold text-gray-800 text-[14px] border-b border-gray-300 pb-1 mb-1">ขาจับราง</span>
-                               <select value={item.bracket} onChange={(e)=>handleItemChange(item.id, 'bracket', e.target.value)} className="border-b border-gray-300 outline-none print-hidden bg-transparent text-xs font-medium mt-0.5"><option value="">-ระบุ-</option>{(appDB.brackets || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
-                               <div className="hidden print-block text-[13px] font-bold mt-1 whitespace-pre-wrap text-gray-800">{item.bracket || '-'}</div>
-                             </div>
-                             <div className="flex flex-col">
-                               <span className="font-bold text-gray-800 text-[14px] border-b border-gray-300 pb-1 mb-1">การแขวน</span>
-                               <select value={item.hangStyle} onChange={(e)=>handleItemChange(item.id, 'hangStyle', e.target.value)} className="border-b border-gray-300 outline-none print-hidden bg-transparent text-xs font-medium mt-0.5"><option value="">-ระบุ-</option>{(appDB.hangStyles || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
-                               <div className="hidden print-block text-[13px] font-bold mt-1 whitespace-pre-wrap text-gray-800">{item.hangStyle || '-'}</div>
-                             </div>
+                             <div className="flex flex-col"><span className="font-bold text-gray-800 text-[14px] border-b border-gray-300 pb-1 mb-1">ขาจับราง</span><select value={item.bracket} onChange={(e)=>handleItemChange(item.id, 'bracket', e.target.value)} className="border-b border-gray-300 outline-none print-hidden bg-transparent text-xs font-medium mt-0.5"><option value="">-ระบุ-</option>{(appDB.brackets || []).map(s=><option key={s} value={s}>{s}</option>)}</select><div className="hidden print-block text-[13px] font-bold mt-1 whitespace-pre-wrap text-gray-800">{item.bracket || '-'}</div></div>
+                             <div className="flex flex-col"><span className="font-bold text-gray-800 text-[14px] border-b border-gray-300 pb-1 mb-1">การแขวน</span><select value={item.hangStyle} onChange={(e)=>handleItemChange(item.id, 'hangStyle', e.target.value)} className="border-b border-gray-300 outline-none print-hidden bg-transparent text-xs font-medium mt-0.5"><option value="">-ระบุ-</option>{(appDB.hangStyles || []).map(s=><option key={s} value={s}>{s}</option>)}</select><div className="hidden print-block text-[13px] font-bold mt-1 whitespace-pre-wrap text-gray-800">{item.hangStyle || '-'}</div></div>
                           </div>
 
                           <div className="flex flex-col mt-1"><span className="font-bold text-gray-800 text-[14px] border-b border-gray-300 pb-1 mb-1">อุปกรณ์เสริม</span>
@@ -2770,37 +2391,19 @@ const App = () => {
                           <span className="font-bold text-gray-800 block mb-1.5 border-b border-gray-300 pb-1 text-[14px]">ระยะการเผื่อม่าน</span>
                           <div className="grid grid-cols-1 gap-y-2 text-[12px]">
                             <div className="flex gap-3">
-                              <div className="flex flex-col w-1/2"><span className="text-gray-600 font-bold">ด้านซ้าย:</span>
-                                <select value={item.marginLeft} onChange={(e)=>handleItemChange(item.id, 'marginLeft', e.target.value)} className="border-b border-gray-300 outline-none print-hidden bg-transparent font-medium"><option value="">-เลือก-</option>{(appDB.margins?.horizontal || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
-                                {item.marginLeft === 'ระบุเอง...' && <input type="text" value={item.customMarginLeft} onChange={(e)=>handleItemChange(item.id, 'customMarginLeft', e.target.value)} placeholder="พิมพ์ระบุ..." className="border-b border-dashed border-gray-400 bg-transparent outline-none mt-1 print-hidden text-blue-700 font-bold"/>}
-                                <div className="hidden print-block font-bold text-gray-800 whitespace-pre-wrap mt-0.5">{item.marginLeft === 'ระบุเอง...' ? item.customMarginLeft : (item.marginLeft || '-')}</div>
-                              </div>
-                              <div className="flex flex-col w-1/2"><span className="text-gray-600 font-bold">ด้านขวา:</span>
-                                <select value={item.marginRight} onChange={(e)=>handleItemChange(item.id, 'marginRight', e.target.value)} className="border-b border-gray-300 outline-none print-hidden bg-transparent font-medium"><option value="">-เลือก-</option>{(appDB.margins?.horizontal || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
-                                {item.marginRight === 'ระบุเอง...' && <input type="text" value={item.customMarginRight} onChange={(e)=>handleItemChange(item.id, 'customMarginRight', e.target.value)} placeholder="พิมพ์ระบุ..." className="border-b border-dashed border-gray-400 bg-transparent outline-none mt-1 print-hidden text-blue-700 font-bold"/>}
-                                <div className="hidden print-block font-bold text-gray-800 whitespace-pre-wrap mt-0.5">{item.marginRight === 'ระบุเอง...' ? item.customMarginRight : (item.marginRight || '-')}</div>
-                              </div>
+                              <MarginSelector label="ด้านซ้าย" field="marginLeft" customField="customMarginLeft" item={item} options={appDB.margins?.horizontal || []} onChange={handleItemChange} />
+                              <MarginSelector label="ด้านขวา" field="marginRight" customField="customMarginRight" item={item} options={appDB.margins?.horizontal || []} onChange={handleItemChange} />
                             </div>
                             <div className="flex gap-3 items-start mt-1">
-                              <div className="flex flex-col w-1/2"><span className="text-gray-600 font-bold">ด้านบน:</span>
-                                <select value={item.marginTop} onChange={(e)=>handleItemChange(item.id, 'marginTop', e.target.value)} className="border-b border-gray-300 outline-none print-hidden bg-transparent text-blue-700 font-bold"><option value="">-เลือก-</option>{(appDB.margins?.top || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
-                                {item.marginTop === 'ระบุเอง...' && <input type="text" value={item.customMarginTop} onChange={(e)=>handleItemChange(item.id, 'customMarginTop', e.target.value)} placeholder="พิมพ์ระบุ..." className="border-b border-dashed border-gray-400 bg-transparent outline-none mt-1 print-hidden text-blue-700 font-bold"/>}
-                                <div className="hidden print-block font-bold text-gray-800 whitespace-pre-wrap mt-0.5">{item.marginTop === 'ระบุเอง...' ? item.customMarginTop : (item.marginTop || '-')}</div>
-                              </div>
-                              <div className="flex flex-col w-1/2"><span className="text-gray-600 font-bold">ด้านล่าง:</span>
-                                <select value={item.marginBottom} onChange={(e)=>handleItemChange(item.id, 'marginBottom', e.target.value)} className="border-b border-gray-300 outline-none print-hidden bg-transparent text-blue-700 font-bold"><option value="">-เลือก-</option>{(appDB.margins?.bottom || []).map(s=><option key={s} value={s}>{s}</option>)}</select>
-                                {item.marginBottom === 'ระบุเอง...' && <input type="text" value={item.customMarginBottom} onChange={(e)=>handleItemChange(item.id, 'customMarginBottom', e.target.value)} placeholder="พิมพ์ระบุ..." className="border-b border-dashed border-gray-400 bg-transparent outline-none mt-1 print-hidden text-blue-700 font-bold"/>}
-                                <div className="hidden print-block font-bold text-gray-800 whitespace-pre-wrap mt-0.5">{item.marginBottom === 'ระบุเอง...' ? item.customMarginBottom : (item.marginBottom || '-')}</div>
-                              </div>
+                              <MarginSelector label="ด้านบน" field="marginTop" customField="customMarginTop" item={item} options={appDB.margins?.top || []} onChange={handleItemChange} />
+                              <MarginSelector label="ด้านล่าง" field="marginBottom" customField="customMarginBottom" item={item} options={appDB.margins?.bottom || []} onChange={handleItemChange} />
                             </div>
                           </div>
                         </div>
 
                         <div className="flex flex-col pt-2 border-t border-gray-300 shrink-0 mt-auto">
                           <span className="font-bold text-red-600 print:text-gray-800 text-[14px] mb-1">หมายเหตุ</span>
-                          <textarea value={item.note} onChange={(e)=>handleItemChange(item.id, 'note', e.target.value)} rows="2" 
-                            className="w-full border border-red-200 rounded p-1.5 text-red-600 focus:outline-none focus:border-red-400 print-hidden resize-none bg-red-50 text-[12px] leading-tight"
-                            placeholder="ระบุหมายเหตุเพิ่มเติม (ถ้ามี)"></textarea>
+                          <textarea value={item.note} onChange={(e)=>handleItemChange(item.id, 'note', e.target.value)} rows="2" className="w-full border border-red-200 rounded p-1.5 text-red-600 focus:outline-none focus:border-red-400 print-hidden resize-none bg-red-50 text-[12px] leading-tight" placeholder="ระบุหมายเหตุเพิ่มเติม (ถ้ามี)"></textarea>
                           <div className="hidden print-block w-full text-[13px] leading-relaxed whitespace-pre-wrap font-bold text-red-600">{item.note || '-'}</div>
                         </div>
 
@@ -2817,33 +2420,15 @@ const App = () => {
       <div className="fixed bottom-8 right-8 flex flex-col gap-4 no-print z-[999999] items-end">
         {view === 'editor' && (
            <div className="flex flex-col items-center bg-gray-800 rounded-full p-1.5 shadow-xl border-2 border-white mb-1 w-[56px]">
-             <button onClick={undo} disabled={historyIndexRef.current <= 0} className={`py-2.5 px-0 rounded-full transition-all flex items-center justify-center w-full ${historyIndexRef.current <= 0 ? 'text-gray-500 cursor-not-allowed' : 'text-white hover:bg-gray-700'}`} title="เลิกทำ (Undo)">
-                <Undo size={20} />
-             </button>
+             <button onClick={undo} disabled={historyIndexRef.current <= 0} className={`py-2.5 px-0 rounded-full transition-all flex items-center justify-center w-full ${historyIndexRef.current <= 0 ? 'text-gray-500 cursor-not-allowed' : 'text-white hover:bg-gray-700'}`} title="เลิกทำ (Undo)"><Undo size={20} /></button>
              <div className="w-8 h-px bg-gray-600 my-0.5"></div>
-             <button onClick={redo} disabled={historyIndexRef.current >= historyRef.current.length - 1} className={`py-2.5 px-0 rounded-full transition-all flex items-center justify-center w-full ${historyIndexRef.current >= historyRef.current.length - 1 ? 'text-gray-500 cursor-not-allowed' : 'text-white hover:bg-gray-700'}`} title="ทำซ้ำ (Redo)">
-                <Redo size={20} />
-             </button>
+             <button onClick={redo} disabled={historyIndexRef.current >= historyRef.current.length - 1} className={`py-2.5 px-0 rounded-full transition-all flex items-center justify-center w-full ${historyIndexRef.current >= historyRef.current.length - 1 ? 'text-gray-500 cursor-not-allowed' : 'text-white hover:bg-gray-700'}`} title="ทำซ้ำ (Redo)"><Redo size={20} /></button>
            </div>
         )}
-
-        <button onClick={saveData} disabled={saving} className={`group relative ${saving ? 'bg-gray-500' : 'bg-indigo-600 hover:bg-indigo-700'} text-white rounded-full p-4 shadow-xl flex items-center justify-center transition-transform hover:scale-110 border-2 border-white`} title="บันทึกงาน">
-          <Save size={24} />
-          <span className="absolute right-[110%] bg-indigo-800 text-white px-2 py-1 rounded text-xs whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity mr-2">บันทึกงาน</span>
-          {saveStatus && <span className="absolute right-[110%] mr-2 bg-green-600 text-white px-3 py-1.5 rounded text-sm font-bold whitespace-nowrap shadow-lg">{saveStatus}</span>}
-        </button>
-        <button onClick={addItem} className="group relative bg-green-600 hover:bg-green-700 text-white rounded-full p-4 shadow-xl flex items-center justify-center transition-transform hover:scale-110 border-2 border-white" title="เพิ่มหน้าต่างบานใหม่">
-          <Plus size={24} />
-          <span className="absolute right-[110%] bg-green-800 text-white px-2 py-1 rounded text-xs whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity mr-2">เพิ่มหน้าต่าง</span>
-        </button>
-        <button onClick={handleSharePDF} className="group relative bg-orange-500 hover:bg-orange-600 text-white rounded-full p-4 shadow-xl flex items-center justify-center transition-transform hover:scale-110 border-2 border-white" title="แชร์เป็น PDF (แนวนอน)">
-          <Share2 size={24} />
-          <span className="absolute right-[110%] bg-orange-800 text-white px-2 py-1 rounded text-xs whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity mr-2">แชร์ PDF</span>
-        </button>
-        <button onClick={printDocument} className="group relative bg-blue-600 hover:bg-blue-700 text-white rounded-full p-4 shadow-xl flex items-center justify-center transition-transform hover:scale-110 border-2 border-white" title="พิมพ์เอกสาร">
-          <Printer size={24} />
-          <span className="absolute right-[110%] bg-blue-800 text-white px-2 py-1 rounded text-xs whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity mr-2">พิมพ์</span>
-        </button>
+        <button onClick={saveData} disabled={saving} className={`group relative ${saving ? 'bg-gray-500' : 'bg-indigo-600 hover:bg-indigo-700'} text-white rounded-full p-4 shadow-xl flex items-center justify-center transition-transform hover:scale-110 border-2 border-white`} title="บันทึกงาน"><Save size={24} /><span className="absolute right-[110%] bg-indigo-800 text-white px-2 py-1 rounded text-xs whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity mr-2">บันทึกงาน</span>{saveStatus && <span className="absolute right-[110%] mr-2 bg-green-600 text-white px-3 py-1.5 rounded text-sm font-bold whitespace-nowrap shadow-lg">{saveStatus}</span>}</button>
+        <button onClick={addItem} className="group relative bg-green-600 hover:bg-green-700 text-white rounded-full p-4 shadow-xl flex items-center justify-center transition-transform hover:scale-110 border-2 border-white" title="เพิ่มหน้าต่างบานใหม่"><Plus size={24} /><span className="absolute right-[110%] bg-green-800 text-white px-2 py-1 rounded text-xs whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity mr-2">เพิ่มหน้าต่าง</span></button>
+        <button onClick={handleSharePDF} className="group relative bg-orange-500 hover:bg-orange-600 text-white rounded-full p-4 shadow-xl flex items-center justify-center transition-transform hover:scale-110 border-2 border-white" title="แชร์เป็น PDF (แนวนอน)"><Share2 size={24} /><span className="absolute right-[110%] bg-orange-800 text-white px-2 py-1 rounded text-xs whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity mr-2">แชร์ PDF</span></button>
+        <button onClick={printDocument} className="group relative bg-blue-600 hover:bg-blue-700 text-white rounded-full p-4 shadow-xl flex items-center justify-center transition-transform hover:scale-110 border-2 border-white" title="พิมพ์เอกสาร"><Printer size={24} /><span className="absolute right-[110%] bg-blue-800 text-white px-2 py-1 rounded text-xs whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity mr-2">พิมพ์</span></button>
       </div>
     </div>
   );

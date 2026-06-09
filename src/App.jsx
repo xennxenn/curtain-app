@@ -1011,7 +1011,7 @@ const FabricSelector = React.memo(({ item, area, fab, appDB, generalInfo, update
 const ImageAreaEditor = React.memo(({ item, appDB, handleItemChange, setDialog, idPrefix = 'editor' }) => {
   const [activeAreaId, setActiveAreaId] = useState(null);
   const [isDrawing, setIsDrawing] = useState(false);
-  const [showControls, setShowControls] = useState(false);
+  const [showControls, setShowControls] = useState(false); // แผงเครื่องมือควบคุมจุด (ซ่อน/แสดงได้แล้ว)
   const [mode, setMode] = useState('draw'); 
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -1267,7 +1267,7 @@ const ImageAreaEditor = React.memo(({ item, appDB, handleItemChange, setDialog, 
     setPointDrag({ areaId, pIdx }); 
   };
 
-  const handleImageUpload = async (e) => {
+  const handleImageUploadAsync = async (e) => {
     const file = e.target.files[0];
     if (file) {
       setIsUploadingObj(true);
@@ -1567,7 +1567,7 @@ const ImageAreaEditor = React.memo(({ item, appDB, handleItemChange, setDialog, 
             <div className="absolute top-2 left-2 flex flex-wrap gap-2 z-40 no-print" onMouseDown={e=>e.stopPropagation()} onTouchStart={e=>e.stopPropagation()} onClick={e=>e.stopPropagation()} onWheel={e=>e.stopPropagation()}>
               <label className={`cursor-pointer bg-white/90 border border-gray-300 text-gray-700 px-3 py-1.5 rounded shadow-sm hover:bg-white flex items-center text-xs font-bold transition-colors ${isUploadingObj ? 'opacity-50 cursor-wait' : ''}`} title="เปลี่ยนเฉพาะรูปพื้นหลัง">
                 <Upload size={14} className="mr-1.5"/> {isUploadingObj ? 'กำลังอัปโหลด...' : 'เปลี่ยนรูปหน้างาน'}
-                <input type="file" accept={ACCEPTED_IMAGE_FORMATS} className="hidden" disabled={isUploadingObj} onChange={handleImageUpload} />
+                <input type="file" accept={ACCEPTED_IMAGE_FORMATS} className="hidden" disabled={isUploadingObj} onChange={handleImageUploadAsync} />
               </label>
               <button onClick={() => {
                 handleItemChange(item.id, 'imageFit', (item.imageFit || 'fill') === 'fill' ? 'fit' : 'fill');
@@ -1576,13 +1576,21 @@ const ImageAreaEditor = React.memo(({ item, appDB, handleItemChange, setDialog, 
               }} className="cursor-pointer bg-white/90 border border-gray-300 text-gray-700 px-3 py-1.5 rounded shadow-sm hover:bg-white flex items-center text-xs font-bold transition-colors" title="รีเซ็ตและเปลี่ยนรูปแบบการจัดวางรูปภาพ">
                 {(item.imageFit || 'fill') === 'fill' ? 'โหมด: เต็มกรอบ (Fill)' : 'โหมด: พอดีภาพ (Fit)'}
               </button>
+              {/* ปุ่มเปิด/ปิดหน้าต่างเครื่องมือวาดจุด */}
+              <button
+                onClick={() => setShowControls(!showControls)}
+                className={`cursor-pointer bg-white/90 border ${showControls ? 'border-blue-500 text-blue-600 bg-blue-50' : 'border-gray-300 text-gray-700'} px-3 py-1.5 rounded shadow-sm hover:bg-white flex items-center text-xs font-bold transition-colors`}
+                title="ซ่อน/แสดงเครื่องมือจัดการพื้นที่"
+              >
+                <MousePointerClick size={14} className="mr-1.5"/> {showControls ? 'ซ่อนแผงจัดการพื้นที่' : 'แสดงแผงจัดการพื้นที่'}
+              </button>
             </div>
           </>
         ) : (
           <div className="absolute inset-0 flex items-center justify-center opacity-100 bg-gray-50 no-print">
             <label className={`cursor-pointer bg-white text-blue-600 border border-blue-600 px-6 py-3 rounded-lg shadow-sm flex items-center transition-colors font-bold ${isUploadingObj ? 'opacity-50 cursor-wait' : 'hover:bg-blue-50'}`}>
               <Upload size={20} className="mr-2" /> {isUploadingObj ? 'กำลังอัปโหลด...' : 'อัปโหลดรูปหน้างาน'}
-              <input type="file" accept={ACCEPTED_IMAGE_FORMATS} className="hidden" disabled={isUploadingObj} onChange={handleImageUpload} />
+              <input type="file" accept={ACCEPTED_IMAGE_FORMATS} className="hidden" disabled={isUploadingObj} onChange={handleImageUploadAsync} />
             </label>
           </div>
         )}
@@ -1702,6 +1710,9 @@ const App = () => {
   const historyIndexRef = useRef(-1);
   const isUndoRedoAction = useRef(false);
   const [, setForceUpdate] = useState(false);
+
+  // สถานะเปิด/ปิด เมนูลอย (Floating Tools)
+  const [showFloatingTools, setShowFloatingTools] = useState(true);
 
   const defaultTerms = `กรณีมีการเปลี่ยนแปลงรายละเอียดจากที่ตกลงไว้ในใบสรุปงานติดตั้งผ้าม่านนี้ ผู้สั่งซื้อยินยอมที่จะชำระเงินเพิ่มในส่วนของ\n(A) ค่าแก้ไขผ้าม่านและอุปกรณ์ เช่น ความสูง ความกว้างของผ้าม่าน รางม่าน ที่เกิดจากหน้างานเปลี่ยนแปลง บิ้วท์อินเพิ่มเติม ฯลฯ\n(B) ค่าติดตั้งรางละ 200 บาท\n(C) ค่าเดินทาง 1,500 บาท ใน กทม. (ต่างจังหวัดคิดตามระยะทาง)\n(D) สีสินค้าจริงอาจแตกต่างจากภาพแสดงผลเล็กน้อย เนื่องจากข้อจำกัดด้านการถ่ายภาพและหน้าจอแสดงผล\nการเลื่อนคิวงานติตตั้ง ขอความกรุณาลูกค้าแจ้งพนักงานขายก่อนวันติดตั้ง อย่างน้อย 5 วันทำการ ถ้าน้อยกว่า 5 วัน จะมีค่าดำเนินการ 3,000 บาท / ครั้ง\nบริษัทฯ จะรับผิดชอบดำเนินการแก้ไขงาน ในกรณีที่ความผิดพลาดเกิดจากบริษัทฯ เท่านั้น`;
 
@@ -2418,17 +2429,33 @@ const App = () => {
       </div>
 
       <div className="fixed bottom-8 right-8 flex flex-col gap-4 no-print z-[999999] items-end">
-        {view === 'editor' && (
-           <div className="flex flex-col items-center bg-gray-800 rounded-full p-1.5 shadow-xl border-2 border-white mb-1 w-[56px]">
-             <button onClick={undo} disabled={historyIndexRef.current <= 0} className={`py-2.5 px-0 rounded-full transition-all flex items-center justify-center w-full ${historyIndexRef.current <= 0 ? 'text-gray-500 cursor-not-allowed' : 'text-white hover:bg-gray-700'}`} title="เลิกทำ (Undo)"><Undo size={20} /></button>
-             <div className="w-8 h-px bg-gray-600 my-0.5"></div>
-             <button onClick={redo} disabled={historyIndexRef.current >= historyRef.current.length - 1} className={`py-2.5 px-0 rounded-full transition-all flex items-center justify-center w-full ${historyIndexRef.current >= historyRef.current.length - 1 ? 'text-gray-500 cursor-not-allowed' : 'text-white hover:bg-gray-700'}`} title="ทำซ้ำ (Redo)"><Redo size={20} /></button>
-           </div>
+        {showFloatingTools && (
+            <div className="flex flex-col gap-4 items-end animate-in fade-in slide-in-from-bottom-5">
+                {view === 'editor' && (
+                   <div className="flex flex-col items-center bg-gray-800 rounded-full p-1.5 shadow-xl border-2 border-white mb-1 w-[56px]">
+                     <button onClick={undo} disabled={historyIndexRef.current <= 0} className={`py-2.5 px-0 rounded-full transition-all flex items-center justify-center w-full ${historyIndexRef.current <= 0 ? 'text-gray-500 cursor-not-allowed' : 'text-white hover:bg-gray-700'}`} title="เลิกทำ (Undo)"><Undo size={20} /></button>
+                     <div className="w-8 h-px bg-gray-600 my-0.5"></div>
+                     <button onClick={redo} disabled={historyIndexRef.current >= historyRef.current.length - 1} className={`py-2.5 px-0 rounded-full transition-all flex items-center justify-center w-full ${historyIndexRef.current >= historyRef.current.length - 1 ? 'text-gray-500 cursor-not-allowed' : 'text-white hover:bg-gray-700'}`} title="ทำซ้ำ (Redo)"><Redo size={20} /></button>
+                   </div>
+                )}
+                <button onClick={saveData} disabled={saving} className={`group relative ${saving ? 'bg-gray-500' : 'bg-indigo-600 hover:bg-indigo-700'} text-white rounded-full p-4 shadow-xl flex items-center justify-center transition-transform hover:scale-110 border-2 border-white`} title="บันทึกงาน"><Save size={24} /><span className="absolute right-[110%] bg-indigo-800 text-white px-2 py-1 rounded text-xs whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity mr-2">บันทึกงาน</span>{saveStatus && <span className="absolute right-[110%] mr-2 bg-green-600 text-white px-3 py-1.5 rounded text-sm font-bold whitespace-nowrap shadow-lg">{saveStatus}</span>}</button>
+                <button onClick={addItem} className="group relative bg-green-600 hover:bg-green-700 text-white rounded-full p-4 shadow-xl flex items-center justify-center transition-transform hover:scale-110 border-2 border-white" title="เพิ่มหน้าต่างบานใหม่"><Plus size={24} /><span className="absolute right-[110%] bg-green-800 text-white px-2 py-1 rounded text-xs whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity mr-2">เพิ่มหน้าต่าง</span></button>
+                <button onClick={handleSharePDF} className="group relative bg-orange-500 hover:bg-orange-600 text-white rounded-full p-4 shadow-xl flex items-center justify-center transition-transform hover:scale-110 border-2 border-white" title="แชร์เป็น PDF (แนวนอน)"><Share2 size={24} /><span className="absolute right-[110%] bg-orange-800 text-white px-2 py-1 rounded text-xs whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity mr-2">แชร์ PDF</span></button>
+                <button onClick={printDocument} className="group relative bg-blue-600 hover:bg-blue-700 text-white rounded-full p-4 shadow-xl flex items-center justify-center transition-transform hover:scale-110 border-2 border-white" title="พิมพ์เอกสาร"><Printer size={24} /><span className="absolute right-[110%] bg-blue-800 text-white px-2 py-1 rounded text-xs whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity mr-2">พิมพ์</span></button>
+            </div>
         )}
-        <button onClick={saveData} disabled={saving} className={`group relative ${saving ? 'bg-gray-500' : 'bg-indigo-600 hover:bg-indigo-700'} text-white rounded-full p-4 shadow-xl flex items-center justify-center transition-transform hover:scale-110 border-2 border-white`} title="บันทึกงาน"><Save size={24} /><span className="absolute right-[110%] bg-indigo-800 text-white px-2 py-1 rounded text-xs whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity mr-2">บันทึกงาน</span>{saveStatus && <span className="absolute right-[110%] mr-2 bg-green-600 text-white px-3 py-1.5 rounded text-sm font-bold whitespace-nowrap shadow-lg">{saveStatus}</span>}</button>
-        <button onClick={addItem} className="group relative bg-green-600 hover:bg-green-700 text-white rounded-full p-4 shadow-xl flex items-center justify-center transition-transform hover:scale-110 border-2 border-white" title="เพิ่มหน้าต่างบานใหม่"><Plus size={24} /><span className="absolute right-[110%] bg-green-800 text-white px-2 py-1 rounded text-xs whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity mr-2">เพิ่มหน้าต่าง</span></button>
-        <button onClick={handleSharePDF} className="group relative bg-orange-500 hover:bg-orange-600 text-white rounded-full p-4 shadow-xl flex items-center justify-center transition-transform hover:scale-110 border-2 border-white" title="แชร์เป็น PDF (แนวนอน)"><Share2 size={24} /><span className="absolute right-[110%] bg-orange-800 text-white px-2 py-1 rounded text-xs whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity mr-2">แชร์ PDF</span></button>
-        <button onClick={printDocument} className="group relative bg-blue-600 hover:bg-blue-700 text-white rounded-full p-4 shadow-xl flex items-center justify-center transition-transform hover:scale-110 border-2 border-white" title="พิมพ์เอกสาร"><Printer size={24} /><span className="absolute right-[110%] bg-blue-800 text-white px-2 py-1 rounded text-xs whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity mr-2">พิมพ์</span></button>
+        
+        {/* Toggle Button for Tools */}
+        <button 
+            onClick={() => setShowFloatingTools(!showFloatingTools)} 
+            className={`group relative ${showFloatingTools ? 'bg-gray-600 hover:bg-gray-700' : 'bg-blue-600 hover:bg-blue-700 animate-bounce'} text-white rounded-full p-3 shadow-xl flex items-center justify-center transition-transform hover:scale-110 border-2 border-white`} 
+            title={showFloatingTools ? "ซ่อนชุดเครื่องมือ" : "แสดงชุดเครื่องมือ"}
+        >
+            {showFloatingTools ? <ChevronDown size={24} /> : <Settings size={24} />}
+            <span className="absolute right-[110%] bg-gray-800 text-white px-2 py-1 rounded text-xs whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity mr-2">
+                {showFloatingTools ? "ซ่อนเครื่องมือ" : "เปิดชุดเครื่องมือ"}
+            </span>
+        </button>
       </div>
     </div>
   );
